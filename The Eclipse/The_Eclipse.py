@@ -184,20 +184,44 @@ def discover_device(timeout=3.0):
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     sock.settimeout(timeout)
 
-    pkt = bytes([0x67, 0x00, 0x00, 0x00])
+    # REZOLVARE PENTRU WINDOWS CU MAI MULTE PLĂCI DE REȚEA (ex: Wi-Fi + LAN)
+    # Setăm socket-ul să folosească explicit placa "LedHack Virtual Network"
     try:
-        sock.sendto(pkt, ('255.255.255.255', UDP_DEVICE_PORT))
-        data, addr = sock.recvfrom(64)
-        if len(data) >= 13 and data[0] == 0x68:
-            model = data[6:13].rstrip(b'\x00').decode('ascii', errors='replace')
-            if 'KX-HC04' in model:
-                print(f"[DISCOVERY] ✅ Found Evil Eye at {addr[0]} ({model})")
-                sock.close()
-                return addr[0]
-    except socket.timeout:
-        pass
-    except Exception as e:
-        print(f"[DISCOVERY] Error: {e}")
+        sock.bind(('169.254.100.1', 0))
+        print("[DISCOVERY] 📍 Bound to LedHack Virtual Network (169.254.100.1)")
+    except Exception:
+        # Fallback pentru simulatoare (Linux, Localhost, etc) unde IP-ul nu există
+        try:
+            sock.bind(('0.0.0.0', 0))
+        except:
+            pass
+
+    pkt = bytes([0x67, 0x00, 0x00, 0x00])
+
+    # Trimitere pachet către toate adresele de broadcast posibile în subnetul LedHack
+    bcast_targets = ['169.254.100.255', '169.254.255.255', '255.255.255.255']
+    for target in bcast_targets:
+        try:
+            sock.sendto(pkt, (target, UDP_DEVICE_PORT))
+        except Exception:
+            pass
+
+    # Așteptăm răspunsul KX-HC04
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        try:
+            data, addr = sock.recvfrom(64)
+            if len(data) >= 13 and data[0] == 0x68:
+                model = data[6:13].rstrip(b'\x00').decode('ascii', errors='replace')
+                if 'KX-HC04' in model:
+                    print(f"[DISCOVERY] ✅ Found Evil Eye at {addr[0]} ({model})")
+                    sock.close()
+                    return addr[0]
+        except socket.timeout:
+            break
+        except Exception as e:
+            print(f"[DISCOVERY] Error: {e}")
+            break
 
     sock.close()
     print("[DISCOVERY] ⚠ No hardware found — using 127.0.0.1 (simulator)")

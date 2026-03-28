@@ -1614,4 +1614,3 @@ if __name__ == "__main__":
         game.running = False
         net.stop()
         print("[ColorCapture] Exited.")
-
