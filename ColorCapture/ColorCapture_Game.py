@@ -60,8 +60,8 @@ _CFG_FILE = os.path.join(APP_DIR, "color_capture_config.json")
 def _load_config():
     defaults = {
         "device_ip": "255.255.255.255",
-        "send_port": 6666,
-        "recv_port": 6667,
+        "send_port": 6668,
+        "recv_port": 6669,
         "bind_ip":   "0.0.0.0",
     }
     try:

@@ -1,0 +1,14 @@
+{
+    "device_ip": "127.0.0.1",
+    "send_port": 4626,
+    "recv_port": 7800,
+    "bind_ip": "0.0.0.0",
+    "num_players": 4,
+    "phase1_duration": 30.0,
+    "time_per_blue_ph1": 3.0,
+    "phase2_target": 10,
+    "phase3_target": 15,
+    "phase1_max_blues": 4,
+    "phase23_max_blues": 3,
+    "min_phase2_time": 20.0
+}
