@@ -1,0 +1,5 @@
+{
+    "device_ip": "127.0.0.1",
+    "send_port": 4626,
+    "recv_port": 7800
+}
