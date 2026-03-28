@@ -45,17 +45,23 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Configuration
+# PyInstaller Paths & Configuration
 # ─────────────────────────────────────────────────────────────────────────────
 
-_CFG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                         "color_capture_config.json")
+if getattr(sys, 'frozen', False):
+    BUNDLE_DIR = sys._MEIPASS
+    APP_DIR    = os.path.dirname(sys.executable)
+else:
+    BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
+    APP_DIR    = BUNDLE_DIR
+
+_CFG_FILE = os.path.join(APP_DIR, "color_capture_config.json")
 
 def _load_config():
     defaults = {
         "device_ip": "255.255.255.255",
-        "send_port": 6668,
-        "recv_port": 6669,
+        "send_port": 6666,
+        "recv_port": 6667,
         "bind_ip":   "0.0.0.0",
     }
     try:
@@ -113,8 +119,9 @@ def dim(color, factor=0.45):
 # Game constants
 # ─────────────────────────────────────────────────────────────────────────────
 
-ROUND_DURATION     = 120.0  # seconds per round
+ROUND_DURATION     = 60.0  # seconds per round
 BREAK_DURATION     = 10.0   # seconds between rounds
+PRE_GAME_DURATION  = 10.0   # seconds for placing players
 TOTAL_ROUNDS       = 2
 
 # Spawn points = the 4 corners of the board, ordered for maximum separation.
@@ -207,6 +214,176 @@ def draw_text(buffer: bytearray, text: str, ox: int, oy: int, color: tuple):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# SOUND MANAGER
+# ─────────────────────────────────────────────────────────────────────────────
+
+class SoundManager:
+    """Generează audio sintetic pentru ColorCapture. Folosește numpy și pygame."""
+    SR = 44100
+    
+    def __init__(self):
+        self._ok = False
+        self._prev_state = None
+        self._last_timer_sec = -1
+        try:
+            import pygame as _pg
+            import numpy as _np
+            _pg.mixer.pre_init(self.SR, -16, 2, 512)
+            if not _pg.get_init():
+                _pg.init()
+            _pg.mixer.init(frequency=self.SR, size=-16, channels=2, buffer=512)
+            self._pg = _pg
+            self._np = _np
+            
+            _pg.mixer.set_num_channels(8)
+            self._ch_bg = _pg.mixer.Channel(0)
+            self._ch_sfx = _pg.mixer.Channel(1)
+            self._ch_tmr = _pg.mixer.Channel(2)
+            
+            self._build()
+            self._ok = True
+            print("[Audio] OK — ColorCapture procedural sounds generated.")
+        except Exception as e:
+            print(f"[Audio] Funcționalitatea audio nu s-a putut inițializa: {e}")
+            
+    def _mix(self, *arrs):
+        n = max(len(a) for a in arrs)
+        out = self._np.zeros(n)
+        for a in arrs:
+            out[:len(a)] += a
+        return self._np.clip(out, -1.0, 1.0)
+        
+    def _concat(self, *arrs):
+        return self._np.concatenate(arrs)
+        
+    def _to_snd(self, wave):
+        arr = (self._np.clip(wave, -1.0, 1.0) * 32767).astype(self._np.int16)
+        stereo = self._np.column_stack([arr, arr]).copy()
+        return self._pg.sndarray.make_sound(stereo)
+        
+    def _sine(self, freq, dur, vol=0.5, decay=0.0):
+        t = self._np.linspace(0, dur, int(self.SR * dur), endpoint=False)
+        w = self._np.sin(2 * self._np.pi * freq * t) * vol
+        if decay > 0: w *= self._np.exp(-decay * t)
+        return w
+        
+    def _square_decay(self, freq, dur, vol=0.3, decay=5.0):
+        t = self._np.linspace(0, dur, int(self.SR * dur), endpoint=False)
+        w = self._np.sign(self._np.sin(2 * self._np.pi * freq * t)) * vol
+        w *= self._np.exp(-decay * t)
+        return w
+
+    def _white_noise(self, dur, vol=0.3, decay=0.0):
+        t = self._np.linspace(0, dur, int(self.SR * dur), endpoint=False)
+        w = (self._np.random.random(len(t)) * 2 - 1) * vol
+        if decay > 0: w *= self._np.exp(-decay * t)
+        return w
+        
+    def _build(self):
+        np = self._np
+        pg = self._pg
+        _dir = os.path.join(BUNDLE_DIR, "sounds")
+        
+        def _load(fname):
+            """Încarcă fișier real dacă există, altfel None."""
+            path = os.path.join(_dir, fname)
+            if os.path.exists(path):
+                try:
+                    return pg.mixer.Sound(path)
+                except Exception as e:
+                    print(f"[Audio] Eroare citire {fname}: {e}")
+            return None
+        
+        # 1. Beep timer
+        self.snd_beep = _load("timer.mp3") or _load("beep.mp3")
+        if not self.snd_beep:
+            self.snd_beep = self._to_snd(self._sine(880.0, 0.1, 0.45))
+        
+        # 2. Gong
+        self.snd_gong = _load("gong.wav") or _load("gong.mp3")
+        if not self.snd_gong:
+            crash = self._white_noise(3.0, vol=0.7, decay=3.0)
+            bass_gong = sum(self._sine(f, 3.0, vol=0.7/idx, decay=1.5*idx) for idx, f in enumerate([60, 120, 240, 360, 480], 1))
+            self.snd_gong = self._to_snd(self._mix(crash, bass_gong))
+        
+        # 3. Trompeta sfarsit
+        self.snd_trumpet = _load("trumpet.wav") or _load("trumpet.mp3") or _load("tada.mp3")
+        if not self.snd_trumpet:
+            n1 = self._square_decay(523.25, 0.15, vol=0.3, decay=1.0)
+            n2 = self._square_decay(659.25, 0.15, vol=0.3, decay=1.0)
+            n3 = self._square_decay(783.99, 0.15, vol=0.3, decay=1.0)
+            n4 = self._square_decay(1046.50, 1.2, vol=0.4, decay=1.5)
+            self.snd_trumpet = self._to_snd(self._concat(n1, n2, n3, n4))
+        
+        # 4. Aplauze
+        self.snd_applause = _load("applause.wav") or _load("applause.mp3") or _load("cheer.mp3")
+        if not self.snd_applause:
+            noise = self._white_noise(4.0, 0.25)
+            swells = np.sin(np.linspace(0, 15*np.pi, len(noise))) * 0.3 + 0.7
+            fade = np.linspace(1.2, 0.0, len(noise))
+            self.snd_applause = self._to_snd(noise * swells * fade)
+        
+        # 5. BGM loop chase
+        self.snd_bgm = _load("bgm.wav") or _load("bgm.mp3") or _load("chase.mp3") or _load("music.mp3")
+        if not self.snd_bgm:
+            tempo = 140.0
+            beat_len = 60.0 / tempo
+            seq_len = int(self.SR * beat_len * 4) # 1 masura
+            bgm_wave = np.zeros(seq_len)
+            
+            # Patru pe sfert - kick
+            for b in range(4):
+                idx = int(b * self.SR * beat_len)
+                kick = self._sine(55.0, 0.2, vol=0.8, decay=15.0) + self._white_noise(0.05, 0.3, 30.0)
+                bgm_wave[idx:idx+len(kick)] += kick
+                
+            # Bas inaispezece
+            arp = [110.0, 110.0, 130.81, 110.0, 146.83, 110.0, 130.81, 98.0]
+            step_len = beat_len / 4.0
+            for i in range(16):
+                f = arp[i % len(arp)]
+                idx = int(i * self.SR * step_len)
+                note = self._square_decay(f, step_len, vol=0.2, decay=10.0)
+                bgm_wave[idx:idx+len(note)] += note
+                
+            self.snd_bgm = self._to_snd(self._mix(bgm_wave))
+        
+    def _play_bg(self, snd):
+        if self._ch_bg:
+            self._ch_bg.stop()
+            self._ch_bg.play(snd, loops=-1)
+            
+    def update(self, state, pre_game_left):
+        if not self._ok: return
+        
+        if state != self._prev_state:
+            # Transitions
+            if   state in ("LOBBY", "PRE_GAME"):
+                self._ch_bg.stop()
+                self._last_timer_sec = -1
+            elif state == "PLAYING":
+                self._ch_tmr.stop()
+                self._ch_sfx.play(self.snd_gong)
+                self._play_bg(self.snd_bgm)
+            elif state == "BREAK":
+                self._ch_bg.stop()
+                self._ch_sfx.play(self.snd_trumpet)
+            elif state == "FINAL":
+                self._ch_bg.stop()
+                self._ch_sfx.play(self.snd_applause)
+                
+        # Timer Beep Logica
+        if state == "PRE_GAME" and pre_game_left >= 0:
+            sec = int(math.ceil(pre_game_left))
+            if sec != self._last_timer_sec and sec > 0:
+                self._ch_tmr.play(self.snd_beep)
+                self._last_timer_sec = sec
+                
+        self._prev_state = state
+
+sound_mgr = SoundManager()
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Player
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -252,6 +429,7 @@ class ColorCaptureGame:
         self.total_rounds  = TOTAL_ROUNDS
         self.round_start_time = 0.0
         self.break_start_time = 0.0
+        self.pre_game_start_time = 0.0
 
         # Sensor state
         self._prev_pressed: set  = set()
@@ -323,13 +501,10 @@ class ColorCaptureGame:
         self.current_round += 1
         self._reset_board()
         self._reset_players_to_spawn()
-        # Mark spawn cells immediately
-        for p in self.players:
-            self.board[(p.x, p.y)] = p.id
-        self.round_start_time = time.time()
-        self.state = "PLAYING"
-        print(f"[ColorCapture] Round {self.current_round} started "
-              f"({self._num_players} players).")
+        self.pre_game_start_time = time.time()
+        self.state = "PRE_GAME"
+        print(f"[ColorCapture] Round {self.current_round} PRE-GAME "
+              f"({self._num_players} players). Get ready!")
 
     def _end_round(self):
         """Count cells, update scores, decide what comes next."""
@@ -423,7 +598,18 @@ class ColorCaptureGame:
             if self.state == "LOBBY":
                 return
 
-            if self.state == "PLAYING":
+            if self.state == "PRE_GAME":
+                elapsed = time.time() - self.pre_game_start_time
+                if elapsed >= PRE_GAME_DURATION:
+                    # Trecere efectivă la joc
+                    self.round_start_time = time.time()
+                    self.state = "PLAYING"
+                    # Acum validăm celulele de start
+                    for p in self.players:
+                        self.board[(p.x, p.y)] = p.id
+                    print(f"[ColorCapture] Round {self.current_round} STARTED!")
+
+            elif self.state == "PLAYING":
                 elapsed = time.time() - self.round_start_time
                 if elapsed >= ROUND_DURATION:
                     self._end_round()
@@ -450,6 +636,8 @@ class ColorCaptureGame:
         with self.lock:
             if self.state == "LOBBY":
                 self._render_lobby(buffer)
+            elif self.state == "PRE_GAME":
+                self._render_pre_game(buffer)
             elif self.state == "PLAYING":
                 self._render_playing(buffer)
             elif self.state == "BREAK":
@@ -489,6 +677,33 @@ class ColorCaptureGame:
                 for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1),
                                (-1,-1), (1,-1), (-1, 1), (1, 1)]:
                     set_led(buf, px + dx, py + dy, arm)
+
+    # ── Pre-Game render ─────────────────────────────────────────
+
+    def _render_pre_game(self, buf: bytearray):
+        # Fundal intunecat
+        for y in range(BOARD_HEIGHT):
+            for x in range(BOARD_WIDTH):
+                set_led(buf, x, y, (4, 4, 8))
+
+        # Pulse spawn points rapid
+        pulse_spawn = (math.sin(self._anim_t * 0.3) + 1) / 2
+        for p in self.players:
+            col_rgb = p.color
+            px, py  = p.spawn
+            bright = tuple(int(c * (0.6 + 0.4 * pulse_spawn)) for c in col_rgb)
+            set_led(buf, px, py, bright)
+            arm = tuple(int(c * 0.45 * pulse_spawn) for c in col_rgb)
+            for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1),
+                           (-1,-1), (1,-1), (-1, 1), (1, 1)]:
+                set_led(buf, px + dx, py + dy, arm)
+
+        # Scris countdown
+        elapsed = time.time() - self.pre_game_start_time
+        remaining = max(0, int(math.ceil(PRE_GAME_DURATION - elapsed)))
+        s = str(remaining)
+        # desenam in centru (latime caracter=3px, gap=1. pt '10' -> latime 7px. centru 16= x:4)
+        draw_text(buf, s, (BOARD_WIDTH - 4 * len(s)) // 2 + 1, 14, WHITE)
 
     # ── Playing render ───────────────────────────────────────────
 
@@ -822,6 +1037,19 @@ def _get_led(buffer: bytearray, x: int, y: int) -> tuple:
 def game_thread_func(game: ColorCaptureGame):
     while game.running:
         game.tick()
+        
+        try:
+            with game.lock:
+                st = game.state
+                pre_left = 0.0
+                if st == "PRE_GAME":
+                    pre_left = PRE_GAME_DURATION - (time.time() - game.pre_game_start_time)
+            
+            if 'sound_mgr' in globals():
+                sound_mgr.update(st, pre_left)
+        except Exception:
+            pass
+            
         time.sleep(0.016)   # ~60 logic ticks / second
 
 
@@ -1220,6 +1448,9 @@ def show_launcher(game: ColorCaptureGame) -> None:
             if st == "PLAYING":
                 status_var.set(f"ROUND {rnd}/{game.total_rounds}  -  PLAYING")
                 status_lbl.configure(fg="#44ff88")
+            elif st == "PRE_GAME":
+                status_var.set(f"ROUND {rnd}/{game.total_rounds}  -  PRE-GAME")
+                status_lbl.configure(fg="#ffffff")
             elif st == "BREAK":
                 status_var.set(f"ROUND {rnd} DONE  -  BREAK")
                 status_lbl.configure(fg="#ffcc44")
@@ -1239,6 +1470,10 @@ def show_launcher(game: ColorCaptureGame) -> None:
                 remaining = max(0.0, ROUND_DURATION - elapsed)
                 mins, secs = divmod(int(remaining), 60)
                 time_var.set(f"TIME LEFT: {mins}:{secs:02d}")
+            elif st == "PRE_GAME":
+                elapsed_pre = time.time() - game.pre_game_start_time
+                remaining_pre = max(0.0, PRE_GAME_DURATION - elapsed_pre)
+                time_var.set(f"START IN: {int(remaining_pre)}s")
             elif st == "BREAK":
                 elapsed_brk = time.time() - game.break_start_time
                 remaining_brk = max(0.0, BREAK_DURATION - elapsed_brk)
