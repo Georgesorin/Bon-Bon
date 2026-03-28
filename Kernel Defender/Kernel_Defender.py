@@ -67,8 +67,8 @@ WAVE_DEFS = [
     [(GREEN,  1)] * 3 + [(YELLOW, 2)] * 2,
     [(GREEN,  1)] * 2 + [(YELLOW, 2)] * 2 + [(RED, 3)] * 3,
 ]
-ENEMIES_PER_WAVE = [6, 10, 15]
-SPAWN_INTERVAL   = [2.5, 2.0, 1.5]
+ENEMIES_PER_WAVE = [8, 14, 22]
+SPAWN_INTERVAL   = [2.0, 1.5, 1.2]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -338,16 +338,46 @@ class KernelDefenderGame:
     def _try_spawn(self, now):
         if self.wave >= len(WAVE_DEFS):
             return
-        if self.enemies_spawned >= ENEMIES_PER_WAVE[self.wave]:
+
+        # 1. DIFICULTATE DINAMICĂ: 4 jucători e standardul.
+        scale_factor = self.player_count / 4.0
+        max_enemies = int(ENEMIES_PER_WAVE[self.wave] * scale_factor)
+        max_enemies = max(1, max_enemies) # Minim 1 inamic garantat
+        
+        if self.enemies_spawned >= max_enemies:
             return
-        if now - self.last_spawn_time < SPAWN_INTERVAL[self.wave]:
+
+        # Viteza de spawn crește (scade intervalul) cu cât sunt mai mulți jucători
+        current_spawn_interval = SPAWN_INTERVAL[self.wave] / scale_factor
+        current_spawn_interval = max(0.4, current_spawn_interval) # Limită ca să nu apară instant toți
+
+        if now - self.last_spawn_time < current_spawn_interval:
             return
 
         pool         = WAVE_DEFS[self.wave]
         color, hp    = random.choice(pool)
-        x, y         = _spawn_position()
-        if _in_core(x, y):
-            x += (2 if x < 8 else -2)
+        
+        # 2. ANTI-REPETIȚIE
+        if not hasattr(self, 'recent_spawns'):
+            self.recent_spawns = []
+            
+        attempts = 0
+        while True:
+            x, y = _spawn_position()
+            if _in_core(x, y):
+                x += (2 if x < 8 else -2)
+            
+            # Verificăm dacă poziția e prea recentă
+            if (x, y) not in self.recent_spawns or attempts > 10:
+                self.recent_spawns.append((x, y))
+                if len(self.recent_spawns) > 5:  # Memorează ultimele 5 locații
+                    self.recent_spawns.pop(0)
+                break
+            attempts += 1
+
+        # 3. NERF "LINIA DE 32" (Marginile laterale X=0 și X=15 sunt prea aproape de nucleu)
+        if x == 0 or x == BOARD_WIDTH - 1:
+            hp = min(hp, 2) # Niciodată Roșu (3 HP) pe laterale. Maxim Galben (2 HP).
 
         self.enemies.append({"x": x, "y": y, "hp": hp})
         self.enemies_spawned += 1
@@ -409,9 +439,14 @@ class KernelDefenderGame:
             return
         self.last_quake_anim = now
         sx = self.quake_x
+        
+        # BUFF-UL TĂU: La Valul 3 (index 2), cutremurul dă damage 2!
+        quake_damage = 2 if self.wave >= 2 else 1
+        
         for e in self.enemies:
             if e["x"] == sx:
-                e["hp"] -= 1
+                e["hp"] -= quake_damage
+                
         self.enemies = [e for e in self.enemies if e["hp"] > 0]
         self.quake_x += self.quake_dir
         if self.quake_x < 0 or self.quake_x >= BOARD_WIDTH:
@@ -422,7 +457,12 @@ class KernelDefenderGame:
     def _check_wave_transition(self, now):
         if self.wave >= len(WAVE_DEFS):
             return
-        if self.enemies_spawned >= ENEMIES_PER_WAVE[self.wave] and len(self.enemies) == 0:
+            
+        scale_factor = self.player_count / 4.0
+        max_enemies = int(ENEMIES_PER_WAVE[self.wave] * scale_factor)
+        max_enemies = max(1, max_enemies)
+        
+        if self.enemies_spawned >= max_enemies and len(self.enemies) == 0:
             next_wave = self.wave + 1
             if next_wave >= len(WAVE_DEFS):
                 self.state = "WIN"
@@ -603,22 +643,20 @@ class TelemetryBroadcaster:
     def _snapshot(self):
         g = self.game
         with g.lock:
-            countdown_remaining = 0
-            if g.state == "COUNTDOWN":
-                countdown_remaining = max(0, int(g.countdown_end - time.time()))
+            cd = max(0, int(g.countdown_end - time.time())) if g.state == "COUNTDOWN" else 0
+            
+            # Calculăm și aici numărul dinamic
+            scale_factor = g.player_count / 4.0
+            max_enemies = int(ENEMIES_PER_WAVE[min(g.wave, len(ENEMIES_PER_WAVE) - 1)] * scale_factor)
+            max_enemies = max(1, max_enemies)
+            
             return {
-                "state":               g.state,
-                "wave":                g.wave + 1,
-                "total_waves":         len(WAVE_DEFS),
-                "core_lives":          g.core_lives,
-                "quakes_left":         g.quakes_remaining,
-                "enemy_count":         len(g.enemies),
-                "enemies_spawned":     g.enemies_spawned,
-                "enemies_total":       ENEMIES_PER_WAVE[min(g.wave, len(ENEMIES_PER_WAVE) - 1)],
-                "player_count":        g.player_count,
-                "countdown_remaining": countdown_remaining,
-                "elapsed_seconds":     int(g.game_elapsed),
-                "fail_wave":           g.fail_wave,
+                "state": g.state, "wave": g.wave + 1, "total_waves": len(WAVE_DEFS),
+                "core_lives": g.core_lives, "quakes_left": g.quakes_remaining,
+                "enemy_count": len(g.enemies), "enemies_spawned": g.enemies_spawned,
+                "enemies_total": max_enemies,
+                "player_count": g.player_count, "countdown_remaining": cd,
+                "elapsed_seconds": int(g.game_elapsed), "fail_wave": g.fail_wave,
             }
 
     def _loop(self):
