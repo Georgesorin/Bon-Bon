@@ -27,8 +27,16 @@ import subprocess
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
-UDP_DEVICE_PORT    = 12345
-UDP_BUTTON_PORT    = 54321
+# Are we in debug mode? (single distraction btn, console sim commands)
+DEBUG_MODE = "--debug" in sys.argv or "-d" in sys.argv
+
+if DEBUG_MODE:
+    UDP_DEVICE_PORT    = 4626
+    UDP_BUTTON_PORT    = 7800
+else:
+    UDP_DEVICE_PORT    = 12345
+    UDP_BUTTON_PORT    = 54321
+
 UDP_TELEMETRY_PORT = 6666
 UDP_CMD_PORT       = 6667
 
@@ -432,11 +440,8 @@ class NetworkService:
 # ──────────────────────────────────────────────────────────────────────────────
 # EclipseGame — State Machine
 # ──────────────────────────────────────────────────────────────────────────────
-# Are we in debug mode? (single distraction btn, console sim commands)
-DEBUG_MODE = "--debug" in sys.argv or "-d" in sys.argv
 if DEBUG_MODE:
     print("[DEBUG] 🔧 Debug mode ON — single distraction btn, sim commands enabled")
-
 
 class EclipseGame:
     """
@@ -957,9 +962,13 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"[ECLIPSE] ⚠ Could not launch displays: {e}")
 
-    # Discover hardware / Hardcoded IPs from mentor
-    device_ip = "169.254.162.11"
-    print(f"[HARDWARE] Using mentor-provided IP: {device_ip} and ports {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
+    if DEBUG_MODE:
+        device_ip = "127.0.0.1"
+        print(f"[HARDWARE] DEBUG MODE: Using local simulator at {device_ip} on ports {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
+    else:
+        # Discover hardware / Hardcoded IPs from mentor
+        device_ip = "169.254.162.11"
+        print(f"[HARDWARE] Using mentor-provided IP: {device_ip} and ports {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
 
     # Create game & services
     game = EclipseGame()
