@@ -25,7 +25,8 @@ def _load_config():
         'phase3_target': 15,        # Numărul de butoane albastre pentru a sparge Boss-ul (Faza 3)
         'phase1_max_blues': 4,      # Pătrate albastre simultane pe pereți în Faza 1
         'phase23_max_blues': 3,     # Pătrate albastre simultane în luptă
-        'min_phase2_time': 20.0     # Timp mimim garantat de siguranță la intrarea în Faza 2
+        'min_phase2_time': 20.0,    # Timp mimim garantat de siguranță la intrarea în Faza 2
+        'strict_hold': True         # True = Mâna trebuie ținută pe galben (Hardware). False = Pt Simulator Coop
     }
     
     try:
@@ -178,7 +179,10 @@ class EvilEyeSiegeGame:
                         if self.yellow_states.get(loc, False):
                             # Eliberat înainte de victorie -> EROARE MORTALĂ
                             self.yellow_states[loc] = False
-                            self._trigger_game_over(reason=f"Mână eliberată de pe butonul Galben ({ch},{led}) prea devreme!")
+                            if self.config.get('strict_hold', True):
+                                self._trigger_game_over(reason=f"Mână eliberată de pe butonul Galben ({ch},{led}) prea devreme!")
+                            else:
+                                print(f"  [Simulator Mode] Mână eliberată de pe Galben ({ch},{led}) (ignorată).")
 
 
     def _game_loop(self):
@@ -359,20 +363,29 @@ if __name__ == "__main__":
         
     try:
         from EvilEye.Controller import LightService
+        from EvilEye.NetworkScanner import auto_discover_evileye
     except ImportError:
-        print("EROARE: Nu pot gasi folderul EvilEye/Controller.py asigura-te ca e instalat.")
+        print("EROARE: Nu pot gasi fisierele EvilEye necesare.")
         sys.exit(1)
 
     # 1. Încărcăm configurația 
     cfg = _load_config()
-    device_ip = cfg.get("device_ip", "127.0.0.1")
-    send_port = cfg.get("send_port", 4626)
-    recv_port = cfg.get("recv_port", 7800)
-    bind_ip   = cfg.get("bind_ip", "0.0.0.0")
+    
+    print("\n--- INIȚIERE CONEXIUNE ASEDIUL ---")
+    discovered_ip = auto_discover_evileye(timeout=1.0)
+    
+    if discovered_ip:
+        device_ip = discovered_ip
+        send_port = 4626
+        recv_port = 7800
+        print(f"\n> [AUTO] Joc atașat la IP-ul hardware real din ESCAPE ROOM: {device_ip}\n")
+    else:
+        device_ip = cfg.get("device_ip", "127.0.0.1")
+        send_port = cfg.get("send_port", 4626)
+        recv_port = cfg.get("recv_port", 7800)
+        print(f"\n> [MANUAL/SIMULATOR] Folosim setările curente din config: {device_ip}:{send_port}\n")
 
-    print(f"[!] Extragere Setări din asediul_config.json...")
-    print(f" -> IP Configurările: Trimitere la {device_ip}:{send_port}")
-    print(f" -> UDP Ascultarea : Interfață {bind_ip}:{recv_port}\n")
+    bind_ip   = cfg.get("bind_ip", "0.0.0.0")
 
     # 2. Conectam Network Service-ul standard
     service = LightService()

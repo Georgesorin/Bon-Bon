@@ -1,5 +1,5 @@
 {
-    "device_ip": "127.0.0.1",
+    "device_ip": "255.255.255.255",
     "send_port": 4626,
     "recv_port": 7800,
     "bind_ip": "0.0.0.0",
@@ -10,5 +10,6 @@
     "phase3_target": 15,
     "phase1_max_blues": 4,
     "phase23_max_blues": 3,
-    "min_phase2_time": 20.0
+    "min_phase2_time": 20.0,
+    "strict_hold": true
 }
