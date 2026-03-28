@@ -34,6 +34,7 @@ import math
 import os
 import json
 import sys
+import tkinter.font as tkfont
 
 # Force UTF-8 output so Windows PowerShell doesn't show '?' for Unicode chars
 if hasattr(sys.stdout, "reconfigure"):
@@ -872,41 +873,68 @@ def show_launcher(game: ColorCaptureGame) -> None:
     ACCENT  = "#1a2a6c"
     SEP     = "#1e2e5a"
     root.configure(bg=BG)
-    root.resizable(False, False)
 
-    W, H = 440, 600
+    W0, H0 = 440, 600
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    root.geometry(f"{W}x{H}+{(sw - W)//2}+{(sh - H)//2}")
+    root.geometry(f"{W0}x{H0}+{(sw - W0)//2}+{(sh - H0)//2}")
+
+    # ── dynamic font scaling ──────────────────────────────────────────────────
+    _BASE_H = 600.0
+    _font_cache = {}   # (base_size, bold) -> tk.font.Font
+
+    def F(base_size, bold=False):
+        """Get (or create) a scalable Font object for the given base size."""
+        key = (base_size, bold)
+        if key not in _font_cache:
+            _font_cache[key] = tkfont.Font(
+                family="Consolas", size=base_size,
+                weight="bold" if bold else "normal")
+        return _font_cache[key]
+
+    def _on_resize(event):
+        if event.widget is not root:
+            return
+        h = max(event.height, 100)
+        sf = h / _BASE_H
+        for (base_size, _), font_obj in _font_cache.items():
+            new_size = max(6, int(base_size * sf))
+            font_obj.configure(size=new_size)
+
+    root.bind("<Configure>", _on_resize)
+
+    # Centre all launcher content in a frame
+    _launcher = tk.Frame(root, bg=BG)
+    _launcher.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
     # ── title ─────────────────────────────────────────────────────────────────
-    tk.Label(root, text="COLOR CAPTURE",
+    tk.Label(_launcher, text="COLOR CAPTURE",
              bg=BG, fg="#ffffff",
-             font=("Consolas", 26, "bold")).pack(pady=(28, 2))
-    tk.Label(root, text="LED Matrix Territory Game",
+             font=F(26, True)).pack(pady=(28, 2))
+    tk.Label(_launcher, text="LED Matrix Territory Game",
              bg=BG, fg="#4455aa",
-             font=("Consolas", 10)).pack()
+             font=F(10)).pack()
 
-    tk.Frame(root, bg=SEP, height=1).pack(fill=tk.X, padx=30, pady=(18, 0))
+    tk.Frame(_launcher, bg=SEP, height=1).pack(fill=tk.X, padx=30, pady=(18, 0))
 
     # ── player count selector ─────────────────────────────────────────────────
-    tk.Label(root, text="NUMBER OF PLAYERS",
+    tk.Label(_launcher, text="NUMBER OF PLAYERS",
              bg=BG, fg="#6677bb",
-             font=("Consolas", 9, "bold")).pack(pady=(14, 10))
+             font=F(9, True)).pack(pady=(14, 10))
 
     sel_var  = tk.IntVar(value=MIN_PLAYERS)
     btn_refs = {}   # n -> button widget
 
-    cnt_frame = tk.Frame(root, bg=BG)
+    cnt_frame = tk.Frame(_launcher, bg=BG)
     cnt_frame.pack()
 
     def refresh_buttons(chosen):
         for n, b in btn_refs.items():
             if n == chosen:
                 b.configure(bg="#2244cc", relief="sunken",
-                            fg="white", font=("Consolas", 22, "bold"))
+                            fg="white", font=F(22, True))
             else:
                 b.configure(bg="#141430", relief="flat",
-                            fg="#445588", font=("Consolas", 22, "bold"))
+                            fg="#445588", font=F(22, True))
         refresh_cards(chosen)
 
     def make_select(n):
@@ -921,7 +949,7 @@ def show_launcher(game: ColorCaptureGame) -> None:
             cnt_frame, text=str(n), width=4,
             bg="#2244cc" if n == MIN_PLAYERS else "#141430",
             fg="white" if n == MIN_PLAYERS else "#445588",
-            font=("Consolas", 22, "bold"),
+            font=F(22, True),
             relief="sunken" if n == MIN_PLAYERS else "flat",
             activebackground="#3355ee", activeforeground="white",
             bd=0, pady=10, cursor="hand2",
@@ -931,11 +959,11 @@ def show_launcher(game: ColorCaptureGame) -> None:
         btn_refs[n] = b
 
     # ── player cards ──────────────────────────────────────────────────────────
-    tk.Label(root, text="SPAWN CORNERS",
+    tk.Label(_launcher, text="SPAWN CORNERS",
              bg=BG, fg="#6677bb",
-             font=("Consolas", 9, "bold")).pack(pady=(18, 8))
+             font=F(9, True)).pack(pady=(18, 8))
 
-    cards_frame = tk.Frame(root, bg=BG)
+    cards_frame = tk.Frame(_launcher, bg=BG)
     cards_frame.pack()
 
     card_widgets = []   # list of (outer_frame, label)
@@ -956,7 +984,7 @@ def show_launcher(game: ColorCaptureGame) -> None:
         lbl = tk.Label(outer,
                        text=f"P{i+1}\n{corner}",
                        bg="#141430", fg="#2a3a6a",
-                       font=("Consolas", 8, "bold"), justify=tk.CENTER)
+                       font=F(8, True), justify=tk.CENTER)
         lbl.pack(expand=True)
         card_widgets.append((outer, lbl, col_hex, txt))
 
@@ -972,27 +1000,27 @@ def show_launcher(game: ColorCaptureGame) -> None:
     refresh_cards(MIN_PLAYERS)   # initial state
     game.set_preview(MIN_PLAYERS)  # show default spawn points on matrix
 
-    tk.Frame(root, bg=SEP, height=1).pack(fill=tk.X, padx=30, pady=(18, 0))
+    tk.Frame(_launcher, bg=SEP, height=1).pack(fill=tk.X, padx=30, pady=(18, 0))
 
     # ── rounds selector ───────────────────────────────────────────────────────
-    tk.Label(root, text="NUMBER OF ROUNDS",
+    tk.Label(_launcher, text="NUMBER OF ROUNDS",
              bg=BG, fg="#6677bb",
-             font=("Consolas", 9, "bold")).pack(pady=(12, 6))
+             font=F(9, True)).pack(pady=(12, 6))
 
     rnd_var = tk.IntVar(value=TOTAL_ROUNDS)
     rnd_btn_refs = {}
 
-    rnd_frame = tk.Frame(root, bg=BG)
+    rnd_frame = tk.Frame(_launcher, bg=BG)
     rnd_frame.pack()
 
     def refresh_rnd_buttons(chosen):
         for r, b in rnd_btn_refs.items():
             if r == chosen:
                 b.configure(bg="#aa2244", relief="sunken",
-                            fg="white", font=("Consolas", 18, "bold"))
+                            fg="white", font=F(18, True))
             else:
                 b.configure(bg="#141430", relief="flat",
-                            fg="#884455", font=("Consolas", 18, "bold"))
+                            fg="#884455", font=F(18, True))
 
     def make_rnd_select(r):
         def _cb():
@@ -1005,7 +1033,7 @@ def show_launcher(game: ColorCaptureGame) -> None:
             rnd_frame, text=str(r), width=4,
             bg="#aa2244" if r == TOTAL_ROUNDS else "#141430",
             fg="white" if r == TOTAL_ROUNDS else "#884455",
-            font=("Consolas", 18, "bold"),
+            font=F(18, True),
             relief="sunken" if r == TOTAL_ROUNDS else "flat",
             activebackground="#ee3355", activeforeground="white",
             bd=0, pady=6, cursor="hand2",
@@ -1014,48 +1042,49 @@ def show_launcher(game: ColorCaptureGame) -> None:
         b.pack(side=tk.LEFT, padx=10)
         rnd_btn_refs[r] = b
 
-    tk.Frame(root, bg=SEP, height=1).pack(fill=tk.X, padx=30, pady=(15, 0))
+    tk.Frame(_launcher, bg=SEP, height=1).pack(fill=tk.X, padx=30, pady=(15, 0))
 
     # ── game control panel + scoreboard (shown after START) ──────────────────
     def _show_game_panel(n_players: int):
-        """Replace launcher widgets with a compact control panel AND open a
-        separate scoreboard Toplevel with timer + live scores."""
+        """Transform root into control panel + open separate scoreboard Toplevel."""
 
-        # ── 1. Transform the launcher into the compact control panel ──────────
+        # ── 1. Transform root into the Control Panel ─────────────────────────
         for w in root.winfo_children():
             w.destroy()
 
-        PW, PH = 300, 220
+        PW, PH = 320, 260
         sw2 = root.winfo_screenwidth()
         sh2 = root.winfo_screenheight()
-        # Position control panel: slightly left of centre
-        root.geometry(f"{PW}x{PH}+{(sw2 - PW)//2 - 180}+{(sh2 - PH)//2}")
+        root.geometry(f"{PW}x{PH}+{(sw2 - PW)//2 - 220}+{(sh2 - PH)//2}")
         root.title("Color Capture - Control")
         BG   = "#08081a"
         SEP2 = "#1e2e5a"
 
-        tk.Label(root, text="COLOR CAPTURE",
-                 bg=BG, fg="#ffffff",
-                 font=("Consolas", 15, "bold")).pack(pady=(16, 2))
+        ctrl = tk.Frame(root, bg=BG)
+        ctrl.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
 
-        dots_frame = tk.Frame(root, bg=BG)
+        tk.Label(ctrl, text="COLOR CAPTURE",
+                 bg=BG, fg="#ffffff",
+                 font=F(20, True)).pack(pady=(16, 2))
+
+        dots_frame = tk.Frame(ctrl, bg=BG)
         dots_frame.pack(pady=(3, 0))
         for i in range(n_players):
             col_hex = "#{:02x}{:02x}{:02x}".format(*PLAYER_COLORS[i])
             tk.Label(dots_frame, text="   ", bg=col_hex,
                      width=3, relief="flat").pack(side=tk.LEFT, padx=3, pady=2)
 
-        tk.Frame(root, bg=SEP2, height=1).pack(fill=tk.X, padx=20, pady=(10, 0))
+        tk.Frame(ctrl, bg=SEP2, height=1).pack(fill=tk.X, padx=20, pady=(10, 0))
 
         status_var = tk.StringVar(value="ROUND 1  -  PLAYING")
-        status_lbl = tk.Label(root, textvariable=status_var,
+        status_lbl = tk.Label(ctrl, textvariable=status_var,
                               bg=BG, fg="#44ff88",
-                              font=("Consolas", 9, "bold"))
+                              font=F(12, True))
         status_lbl.pack(pady=(8, 2))
 
-        tk.Frame(root, bg=SEP2, height=1).pack(fill=tk.X, padx=20, pady=(8, 0))
+        tk.Frame(ctrl, bg=SEP2, height=1).pack(fill=tk.X, padx=20, pady=(8, 0))
 
-        btn_row = tk.Frame(root, bg=BG)
+        btn_row = tk.Frame(ctrl, bg=BG)
         btn_row.pack(pady=(12, 0))
 
         def do_restart():
@@ -1065,12 +1094,14 @@ def show_launcher(game: ColorCaptureGame) -> None:
 
         def do_exit():
             game.running = False
+            try: sb.destroy()
+            except Exception: pass
             root.destroy()
 
         tk.Button(btn_row, text="RESTART",
                   command=do_restart,
                   bg="#1a4a88", fg="white",
-                  font=("Consolas", 10, "bold"),
+                  font=F(12, True),
                   relief="flat", padx=14, pady=8,
                   cursor="hand2",
                   activebackground="#2255aa").pack(side=tk.LEFT, padx=8)
@@ -1078,49 +1109,63 @@ def show_launcher(game: ColorCaptureGame) -> None:
         tk.Button(btn_row, text="EXIT",
                   command=do_exit,
                   bg="#881a1a", fg="white",
-                  font=("Consolas", 10, "bold"),
+                  font=F(12, True),
                   relief="flat", padx=14, pady=8,
                   cursor="hand2",
                   activebackground="#aa2222").pack(side=tk.LEFT, padx=8)
 
         root.protocol("WM_DELETE_WINDOW", do_exit)
 
-        # ── 2. Open the SCOREBOARD Toplevel ───────────────────────────────────
-        SBW = 360
-        SBH = 140 + n_players * 52
-        # Position scoreboard: to the right of the control panel
-        sb_x = (sw2 - PW) // 2 - 180 + PW + 12
+        # ── 2. Open the SCOREBOARD in a separate Toplevel ─────────────────────
+        SBW = 420
+        SBH = 180 + n_players * 52
+        sb_x = (sw2 - PW) // 2 - 220 + PW + 20
         sb_y = (sh2 - SBH) // 2
         sb = tk.Toplevel(root)
-        sb.title("Scoreboard")
+        sb.title("Color Capture - Scoreboard")
         sb.configure(bg=BG)
-        sb.resizable(False, False)
         sb.geometry(f"{SBW}x{SBH}+{sb_x}+{sb_y}")
-        sb.protocol("WM_DELETE_WINDOW", do_exit)  # EXIT scoreboard = EXIT game
+        sb.protocol("WM_DELETE_WINDOW", do_exit)
 
-        tk.Label(sb, text="SCOREBOARD",
+        # Font scaling for scoreboard window too
+        _SB_BASE_H = float(SBH)
+        def _sb_resize(event):
+            if event.widget is not sb:
+                return
+            h = max(event.height, 100)
+            sf = h / _SB_BASE_H
+            for (base_size, _), font_obj in _font_cache.items():
+                new_size = max(6, int(base_size * sf))
+                font_obj.configure(size=new_size)
+        sb.bind("<Configure>", _sb_resize)
+
+        sb_inner = tk.Frame(sb, bg=BG)
+        sb_inner.place(relx=0.5, rely=0.5, anchor=tk.CENTER)
+
+        tk.Label(sb_inner, text="SCOREBOARD",
                  bg=BG, fg="#ffffff",
-                 font=("Consolas", 14, "bold")).pack(pady=(14, 2))
+                 font=F(18, True)).pack(pady=(14, 2))
 
-        round_time_frame = tk.Frame(sb, bg=BG)
+        round_time_frame = tk.Frame(sb_inner, bg=BG)
         round_time_frame.pack()
         rnd_var  = tk.StringVar(value=f"ROUND 1 / {game.total_rounds}")
         time_var = tk.StringVar(value="TIME LEFT: --:--")
         tk.Label(round_time_frame, textvariable=rnd_var,
                  bg=BG, fg="#8899cc",
-                 font=("Consolas", 9, "bold")).pack(side=tk.LEFT, padx=10)
+                 font=F(11, True)).pack(side=tk.LEFT, padx=10)
         tk.Label(round_time_frame, textvariable=time_var,
                  bg=BG, fg="#ffcc44",
-                 font=("Consolas", 9, "bold")).pack(side=tk.LEFT, padx=10)
+                 font=F(11, True)).pack(side=tk.LEFT, padx=10)
 
-        tk.Frame(sb, bg=SEP2, height=1).pack(fill=tk.X, padx=16, pady=(10, 4))
+        tk.Frame(sb_inner, bg=SEP2, height=1).pack(fill=tk.X, padx=16, pady=(10, 4))
 
         # Player score rows (bar + label)
-        BAR_MAX_W = 160   # pixels for max-score bar
+        BAR_MAX_W = 200   # pixels for max-score bar
+        BAR_H     = 16
         rows = []         # list of (bar_frame, score_lbl)
         for i in range(n_players):
             col_hex = "#{:02x}{:02x}{:02x}".format(*PLAYER_COLORS[i])
-            row_f = tk.Frame(sb, bg=BG)
+            row_f = tk.Frame(sb_inner, bg=BG)
             row_f.pack(fill=tk.X, padx=16, pady=4)
 
             # Colour swatch
@@ -1130,32 +1175,32 @@ def show_launcher(game: ColorCaptureGame) -> None:
             # Player name
             tk.Label(row_f, text=f" P{i+1} ",
                      bg=BG, fg=col_hex,
-                     font=("Consolas", 9, "bold"),
+                     font=F(11, True),
                      width=4, anchor="w").pack(side=tk.LEFT)
 
             # Bar container (fixed width background)
-            bar_bg = tk.Frame(row_f, bg="#111130", width=BAR_MAX_W, height=14)
+            bar_bg = tk.Frame(row_f, bg="#111130", width=BAR_MAX_W, height=BAR_H)
             bar_bg.pack_propagate(False)
             bar_bg.pack(side=tk.LEFT, padx=(4, 6))
 
-            bar_fill = tk.Frame(bar_bg, bg=col_hex, width=0, height=14)
-            bar_fill.place(x=0, y=0, height=14, width=0)
+            bar_fill = tk.Frame(bar_bg, bg=col_hex, width=0, height=BAR_H)
+            bar_fill.place(x=0, y=0, height=BAR_H, width=0)
 
             # Score text
             score_var = tk.StringVar(value="0 cells | total 0")
             score_lbl = tk.Label(row_f, textvariable=score_var,
                                  bg=BG, fg="#aabbdd",
-                                 font=("Consolas", 8))
+                                 font=F(10))
             score_lbl.pack(side=tk.LEFT)
 
             rows.append((bar_fill, score_var, BAR_MAX_W))
 
         # Winner banner (hidden initially)
-        tk.Frame(sb, bg=SEP2, height=1).pack(fill=tk.X, padx=16, pady=(6, 4))
+        tk.Frame(sb_inner, bg=SEP2, height=1).pack(fill=tk.X, padx=16, pady=(6, 4))
         winner_var = tk.StringVar(value="")
-        winner_lbl = tk.Label(sb, textvariable=winner_var,
+        winner_lbl = tk.Label(sb_inner, textvariable=winner_var,
                               bg=BG, fg="#ffffff",
-                              font=("Consolas", 11, "bold"),
+                              font=F(14, True),
                               pady=6)
         winner_lbl.pack()
 
@@ -1195,7 +1240,9 @@ def show_launcher(game: ColorCaptureGame) -> None:
                 mins, secs = divmod(int(remaining), 60)
                 time_var.set(f"TIME LEFT: {mins}:{secs:02d}")
             elif st == "BREAK":
-                time_var.set("BREAK")
+                elapsed_brk = time.time() - game.break_start_time
+                remaining_brk = max(0.0, BREAK_DURATION - elapsed_brk)
+                time_var.set(f"NEXT ROUND IN: {int(remaining_brk)}s")
             elif st == "FINAL":
                 time_var.set("FINISHED")
             else:
@@ -1213,7 +1260,7 @@ def show_launcher(game: ColorCaptureGame) -> None:
                 bar_fill, score_var, bmax = rows[p.id]
                 cells = sum(1 for v in board_snap.values() if v == p.id)
                 bar_w = max(1, int(cells / max_cells * bmax)) if max_cells else 0
-                bar_fill.place(x=0, y=0, height=14, width=bar_w)
+                bar_fill.place(x=0, y=0, height=BAR_H, width=bar_w)
                 score_var.set(f"{cells:3d} cells | total {p.total_score}")
 
             # Winner banner
@@ -1241,15 +1288,19 @@ def show_launcher(game: ColorCaptureGame) -> None:
         _show_game_panel(n)   # transform window instead of closing it
 
     start_btn = tk.Button(
-        root, text="  START GAME  ",
+        _launcher, text="  START GAME  ",
         command=on_start,
         bg="#22aa44", fg="white",
-        font=("Consolas", 15, "bold"),
+        font=F(18, True),
         relief="flat", padx=24, pady=12,
         cursor="hand2",
         activebackground="#33cc55", activeforeground="white"
     )
-    start_btn.pack(pady=(20, 8))
+    start_btn.pack(pady=(20, 4))
+
+    tk.Label(_launcher, text="Captureaza cat mai mult din harta!",
+             bg=BG, fg="#4466aa",
+             font=F(10)).pack(pady=(0, 8))
 
     def _hover_in(e):  start_btn.configure(bg="#2ec455")
     def _hover_out(e): start_btn.configure(bg="#22aa44")
