@@ -8,20 +8,45 @@ import re
 import subprocess
 
 # ── Paths & Config ────────────────────────────────────────────────────────────
-BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
+import sys
+import os
+
+PARENT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if PARENT_DIR not in sys.path:
+    sys.path.append(PARENT_DIR)
+
+try:
+    from EvilEye.NetworkScanner import auto_discover_evileye
+except ImportError:
+    auto_discover_evileye = None
+
+# Fallback la rularea din sursă
 if getattr(sys, 'frozen', False):
-    BUNDLE_DIR = os.path.dirname(sys.executable)
+    BUNDLE_DIR = sys._MEIPASS
+else:
+    BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 CFG_FILE = os.path.join(BUNDLE_DIR, "ritual_config.json")
 
 def load_cfg():
-    cfg = {"device_ip": "169.254.182.11", "send_port": 4626, "recv_port": 7800}
+    cfg = {"device_ip": "169.254.162.11", "send_port": 12345, "recv_port": 54321}
     try:
         if os.path.exists(CFG_FILE):
             with open(CFG_FILE) as f:
                 cfg.update(json.load(f))
     except Exception as e:
-        print(f"[Config] Error: {e}")
+        pass
+        
+    # --- AUTO-DISCOVERY MENTOR OVERRIDE ---
+    if auto_discover_evileye:
+        print("\n--- INIȚIERE CONEXIUNE THE RITUAL ---")
+        discovered_ip = auto_discover_evileye(timeout=1.0)
+        if discovered_ip:
+            cfg["device_ip"] = discovered_ip
+            cfg["send_port"] = 4626
+            cfg["recv_port"] = 7800
+            print(f"> [The Ritual] S-a atașat automat la camera hardware. IP: {discovered_ip} | Porturi: 4626/7800")
+            
     return cfg
 
 CFG = load_cfg()
