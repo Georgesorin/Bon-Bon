@@ -47,7 +47,7 @@ C_BORDER = (255, 20, 147)   # margine roz (Safe Zone)
 ISO_N          = 12
 TGT_N          = 8
 TIMELIM        = 120.0    # 2 minute per rundă
-PRE_START_WAIT = 20.0     # 20 de secunde
+PRE_START_WAIT = 5.0     # 5 de secunde
 TOTAL_ROUNDS   = 2
 
 # ── Stare globală joc ─────────────────────────────────────────────────────────
@@ -130,14 +130,13 @@ def led_xy(ch, led):
     return x, y
 
 def pressed_tiles():
-    """Returnează coordonatele jucătorilor, IGNORÂND marginea roz."""
+    """Returnează coordonatele jucătorilor, inclusiv marginea roz."""
     out = []
     for ch in range(NUM_CH):
         for led in range(LEDS_CH):
             if btn[ch][led]:
                 x, y = led_xy(ch, led)
-                if 0 < x < W-1 and 0 < y < H-1:
-                    out.append((x, y))
+                out.append((x, y))
     return out
 
 # ── Bresenham ─────────────────────────────────────────────────────────────────
@@ -450,6 +449,15 @@ def update(dt):
         tgts = list(targets)
         hit  = set(targets_hit)
         cond = list(conductor_pos)
+
+    if pp[0] == 0 or pp[0] == W-1 or pp[1] == 0 or pp[1] == H-1 or \
+       pn[0] == 0 or pn[0] == W-1 or pn[1] == 0 or pn[1] == H-1:
+        with lock:
+            total_score += score
+            state = "GAMEOVER"
+            gameover_reason = "POL ÎN SAFE ZONE!\nPolii nu au voie pe marginea roz."
+            print("[!] SCURTCIRCUIT! Un pol a atins Safe Zone-ul.")
+        return
 
     if cond and np > 2:
         cond_sorted = sorted(cond, key=lambda c: math.dist(c, pp))
