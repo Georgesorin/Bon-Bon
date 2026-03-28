@@ -24,6 +24,15 @@ import json as _json
 import math
 import subprocess
 
+PARENT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if PARENT_DIR not in sys.path:
+    sys.path.append(PARENT_DIR)
+
+try:
+    from EvilEye.NetworkScanner import auto_discover_evileye
+except ImportError:
+    auto_discover_evileye = None
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
@@ -966,9 +975,21 @@ if __name__ == "__main__":
         device_ip = "127.0.0.1"
         print(f"[HARDWARE] DEBUG MODE: Using local simulator at {device_ip} on ports {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
     else:
-        # Discover hardware / Hardcoded IPs from mentor
-        device_ip = "169.254.162.11"
-        print(f"[HARDWARE] Using mentor-provided IP: {device_ip} and ports {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
+        # Preluam IP-ul real prin zero-click auto-discovery!
+        discovered_ip = None
+        if auto_discover_evileye:
+            discovered_ip = auto_discover_evileye(timeout=1.0)
+            
+        if discovered_ip:
+            device_ip = discovered_ip
+            UDP_DEVICE_PORT = 4626
+            UDP_BUTTON_PORT = 7800
+            print(f"> [AUTO] Spirtism atașat la Hardware Real: {device_ip} pe 4626/7800")
+        else:
+            device_ip = "127.0.0.1"
+            UDP_DEVICE_PORT = 4626
+            UDP_BUTTON_PORT = 7800
+            print(f"> [MANUAL/SIMULATOR] Simulator The Eclipse activat la {device_ip}:{UDP_DEVICE_PORT}")
 
     # Create game & services
     game = EclipseGame()
