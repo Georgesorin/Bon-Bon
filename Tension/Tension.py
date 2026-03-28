@@ -1,25 +1,27 @@
-"""
-tension.py — "Tensiunea" | Matrix Room 16x32
-Un singur fișier: logică joc + Ecran Exterior + Ecran Interior.
-Porturi: 6666 (trimitere podea), 6667 (recepție podea).
-Rulare: python3 tension.py
-"""
-
-import socket, threading, time, random, json, os, math
+import socket, threading, time, random, json, os, math, sys
 import tkinter as tk
 from tkinter import font as tkfont
 
-# ── Config ────────────────────────────────────────────────────────────────────
-_CFG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tension_config.json")
+# ── PyInstaller Paths & Config ────────────────────────────────────────────────
+if getattr(sys, 'frozen', False):
+    # Cand rulam ca executabil PyInstaller
+    BUNDLE_DIR = sys._MEIPASS
+    APP_DIR    = os.path.dirname(sys.executable)
+else:
+    # Cand rulam python normal
+    BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
+    APP_DIR    = BUNDLE_DIR
+
+_CFG = os.path.join(APP_DIR, "tension_config.json")
 
 def _load_cfg():
-    d = {"device_ip": "255.255.255.255", "send_port": 6666, "recv_port": 6667}
+    d = {"device_ip": "255.255.255.255", "send_port": 4626, "recv_port": 7800}
     try:
         if os.path.exists(_CFG):
             with open(_CFG) as f:
                 d.update(json.load(f))
-    except:
-        pass
+    except Exception as e:
+        print(f"[Config] Eroare cfg: {e}")
     return d
 
 CFG = _load_cfg()
@@ -175,17 +177,16 @@ def setup_round():
     # ZONA SIGURĂ: Calculăm liniile inițiale ca să nu punem obstacole pe ele
     safe_zone = set()
     safe_zone.update(get_line(pole_pos[0], pole_pos[1], pole_neg[0], pole_neg[1]))
-    # Adăugăm zonele de siguranță pentru potențialii conductori din stânga/dreapta
     safe_zone.update(get_line(pole_pos[0], pole_pos[1], 2, 15))
     safe_zone.update(get_line(2, 15, pole_neg[0], pole_neg[1]))
     safe_zone.update(get_line(pole_pos[0], pole_pos[1], 13, 15))
     safe_zone.update(get_line(13, 15, pole_neg[0], pole_neg[1]))
-    safe_zone.update(get_line(13, 15, 2, 15)) # Pentru situația de legătură între 2 conductori
+    safe_zone.update(get_line(13, 15, 2, 15))
 
     insulators = set()
     while len(insulators) < ISO_N:
         c = (random.randint(1, W-2), random.randint(1, H-2))
-        if c not in safe_zone:  # Obstacolele sunt acum interzise pe ruta principală
+        if c not in safe_zone: 
             insulators.add(c)
 
     targets = []
@@ -209,13 +210,10 @@ def render():
         pass
 
     elif s == "PRE_GAME_TIMER":
-        # 1. Fundal Negru
-        # 2. Cuvântul READY scris cu plasmă multicoloră
         t = time.time() * 2
         for y in range(H):
             for x in range(W):
                 if y < len(READY_MASK) and x < len(READY_MASK[y]) and READY_MASK[y][x] == 'X':
-                    # Dacă face parte din masca "READY?", îi dăm culoare multicoloră
                     r = int((math.sin(t*0.5 + x*0.3) + 1) * 127)
                     g = int((math.sin(t*0.5 + y*0.3 + 2) + 1) * 127)
                     b = int((math.sin(t*0.5 + (x+y)*0.2 + 4) + 1) * 127)
@@ -223,19 +221,15 @@ def render():
                 else:
                     set_led(buf, x, y, BLACK)
 
-        # 3. Desenăm Spawn Point-urile (Ca jucătorii să se așeze)
         with lock:
             pp = pole_pos
             pn = pole_neg
         
-        # Punctele pentru Pol+ și Pol-
         set_led(buf, pp[0], pp[1], C_POS)
         set_led(buf, pn[0], pn[1], C_NEG)
 
-        # Dacă sunt 3 jucători, punem un punct galben pe mijloc-stânga
         if np >= 3:
             set_led(buf, 2, 15, C_COND)
-        # Dacă sunt 4 jucători, mai punem un punct galben pe mijloc-dreapta
         if np >= 4:
             set_led(buf, 13, 15, C_COND)
 
@@ -271,13 +265,11 @@ def render():
             _pn   = tuple(pole_neg)
             _cond = list(conductor_pos)
 
-        # 1. Desenăm MĂRGINEA ROZ (Safe Zone pentru conductori)
         for y in range(H):
             for x in range(W):
                 if x == 0 or x == W-1 or y == 0 or y == H-1:
                     set_led(buf, x, y, C_BORDER)
 
-        # 2. Desenăm restul elementelor (se vor suprapune perfect în centru)
         for p in _iso:
             set_led(buf, *p, C_ISO)
         for p in _tgts:
@@ -373,7 +365,6 @@ def update(dt):
     if s == "LOBBY":
         return
 
-    # ── TIMER DE AȘTEPTARE INTRARE ÎN SALĂ ──
     if s == "PRE_GAME_TIMER":
         with lock:
             pre_game_time_left -= dt
@@ -385,7 +376,7 @@ def update(dt):
     if s in ("BROKEN", "WIN", "GAMEOVER"):
         with lock:
             btimer += dt
-            if btimer > 6.0:  # Mărit la 6 secunde pentru a putea citi mesajul
+            if btimer > 6.0: 
                 btimer = 0.0
                 state  = "LOBBY"
         return
@@ -420,7 +411,6 @@ def update(dt):
     with lock:
         np = num_players
 
-        # ── Atribuire poli și conductori ─────────────────────────────────────
         if len(pts) >= 2:
             best_pair = None
             min_d     = float('inf')
@@ -461,27 +451,19 @@ def update(dt):
         hit  = set(targets_hit)
         cond = list(conductor_pos)
 
-    # ── Generare linie ────────────────────────────────────────────────────────
     if cond and np > 2:
-        # Sortăm conductorii crescător după distanța față de Pol+ 
-        # pentru a crea un "lanț" continuu
         cond_sorted = sorted(cond, key=lambda c: math.dist(c, pp))
-        
         path = []
         current_point = pp
-        
         for next_point in cond_sorted:
             path.extend(get_line(current_point[0], current_point[1], next_point[0], next_point[1]))
             current_point = next_point
-            
         path.extend(get_line(current_point[0], current_point[1], pn[0], pn[1]))
     else:
         path = get_line(pp[0], pp[1], pn[0], pn[1])
 
     with lock:
         cur_path = path
-
-        # Scurtcircuit — linia atinge un izolator
         for p in path:
             if p in iso:
                 total_score += score
@@ -490,7 +472,6 @@ def update(dt):
                 print("[!] SCURTCIRCUIT! Linia a atins un izolator.")
                 return
 
-        # Prindere ținte
         for t in tgts:
             tp = tuple(t)
             if tp in [tuple(p) for p in path] and tp not in hit:
@@ -498,7 +479,6 @@ def update(dt):
                 score += 100
                 print(f"[!] Țintă prinsă! Scor rundă: {score}")
 
-        # Victorie rundă
         if len(targets_hit) >= TGT_N:
             total_score += score
             if current_round >= TOTAL_ROUNDS:
@@ -515,6 +495,13 @@ def game_thread_func():
         now    = time.time()
         update(now - last_t)
         last_t = now
+        # Actualizam audio la fiecare tick
+        if sound_mgr:
+            with lock:
+                s  = state
+                th = len(targets_hit)
+                tl = time_left
+            sound_mgr.update(s, th, tl)
         time.sleep(0.02)
 
 # ── Helpers UI ────────────────────────────────────────────────────────────────
@@ -524,6 +511,269 @@ def lerp_color(c1, c2, t):
 def rgb_hex(r, g, b):
     return f"#{int(r):02x}{int(g):02x}{int(b):02x}"
 
+# ── SOUND MANAGER ─────────────────────────────────────────────────────────────
+class SoundManager:
+    """
+    Genereaza si readeaza toate sunetele jocului programatic (fara fisiere externe).
+    Necesita: pygame si numpy.  Daca lipsesc, ruleaza in mod silentios.
+    """
+    SR = 44100  # sample rate
+
+    def __init__(self):
+        self._ok          = False
+        self._prev_state  = None
+        self._prev_hits   = 0
+        self._timer_warned = False
+        try:
+            import pygame as _pg
+            import numpy  as _np
+            # initializam mixer inainte de display
+            _pg.mixer.pre_init(self.SR, -16, 2, 512)
+            if not _pg.get_init():
+                _pg.init()
+            _pg.mixer.init(frequency=self.SR, size=-16, channels=2, buffer=512)
+            self._pg = _pg
+            self._np = _np
+            # 4 canale dedicate
+            _pg.mixer.set_num_channels(8)
+            self._ch_bg   = _pg.mixer.Channel(0)  # muzica fundal
+            self._ch_sfx  = _pg.mixer.Channel(1)  # ding tinta
+            self._ch_end  = _pg.mixer.Channel(2)  # win / fail
+            self._ch_tmr  = _pg.mixer.Channel(3)  # timer 10s
+            self._build()
+            self._ok = True
+            print("[Audio] OK — toate sunetele generate")
+        except Exception as e:
+            print(f"[Audio] Indisponibil: {e}")
+
+    # ── Primitive waveform ────────────────────────────────────────────────────
+    def _t(self, dur):
+        return self._np.linspace(0, dur, int(self.SR * dur), endpoint=False)
+
+    def _sine(self, freq, dur, vol=0.5, decay=0.0):
+        t = self._t(dur)
+        w = self._np.sin(2 * self._np.pi * freq * t) * vol
+        if decay: w *= self._np.exp(-decay * t)
+        return w
+
+    def _saw(self, freq, dur, vol=0.3):
+        t = self._t(dur)
+        return (2 * (t * freq - self._np.floor(t * freq + 0.5))) * vol
+
+    def _noise(self, dur, vol=0.4):
+        return (self._np.random.random(int(self.SR * dur)) * 2 - 1) * vol
+
+    def _mix(self, *arrs):
+        n = max(len(a) for a in arrs)
+        out = self._np.zeros(n)
+        for a in arrs:
+            out[:len(a)] += a
+        return self._np.clip(out, -1, 1)
+
+    def _concat(self, *arrs):
+        return self._np.concatenate(arrs)
+
+    def _to_snd(self, wave):
+        arr    = (self._np.clip(wave, -1, 1) * 32767).astype(self._np.int16)
+        stereo = self._np.column_stack([arr, arr]).copy()
+        return self._pg.sndarray.make_sound(stereo)
+
+    def _note(self, freq, dur, vol=0.55):
+        """Genereaza o nota muzicala cu armonice si envelope."""
+        if freq is None:
+            return self._np.zeros(int(self.SR * dur))
+        t   = self._t(dur)
+        env = self._np.exp(-t * (2.0 / max(dur, 0.01)))
+        att = min(int(0.012 * self.SR), len(t))
+        env[:att] = self._np.linspace(0, 1, att)
+        wave = (self._np.sin(2 * self._np.pi * freq * t)       * 1.0 +
+                self._np.sin(2 * self._np.pi * freq * 2 * t)   * 0.35 +
+                self._np.sin(2 * self._np.pi * freq * 3 * t)   * 0.12)
+        return wave * env * vol
+
+    # ── Constructie sunete ────────────────────────────────────────────────────
+    def _build(self):
+        np = self._np
+        SR = self.SR
+        pg = self._pg
+        _dir = os.path.join(BUNDLE_DIR, "sounds")
+
+        def _load(fname):
+            """Incarca un fisier MP3/WAV real; fallback la None daca nu exista."""
+            path = os.path.join(_dir, fname)
+            if os.path.exists(path):
+                try:
+                    return pg.mixer.Sound(path)
+                except Exception as e:
+                    print(f"[Audio] Nu pot incarca {fname}: {e}")
+            return None
+
+        # 1. DING — Price is Right casino ding (fisier real)
+        self.snd_ding = _load("ding.mp3")
+
+        # 2. TIMER — 10 secunde ramase (bip enervant sintetic, nu avem fisier)
+        parts = []
+        for i in range(10):
+            hi = 1100 if i % 2 == 0 else 1500
+            parts += [self._sine(hi, 0.08, 0.65), np.zeros(int(SR * 0.06)),
+                      self._sine(hi, 0.06, 0.55), np.zeros(int(SR * 0.06))]
+        self.snd_timer = self._to_snd(self._concat(*parts))
+
+        # 3. FAIL — "FAAAAAACK" TikTok meme (fisier real)
+        self.snd_fail = _load("faaack.mp3") or _load("fail.mp3")
+
+        # 4. WIN — "We Are The Champions" chorus (fisier real)
+        self.snd_win = _load("champions.mp3") or _load("victory.mp3")
+
+        # 5. MUZICA FUNDAL pe durata jocului — ambient electronic (sintetic, 10s loop)
+        self.snd_bg = self._to_snd(self._gen_bg(10.0))
+
+        # 6. MUZICA PRE-START — muzica de lift cu electrosocuri (fisier real)
+        self.snd_prestart = _load("elevator.mp3")
+        # fallback sintetic daca fisierul lipseste
+        if self.snd_prestart is None:
+            self.snd_prestart = self._to_snd(self._gen_prestart(8.0))
+
+        print("[Audio] Sunete incarcate: ding, faaack, champions, elevator + bg sintetic")
+
+    def _gen_bg(self, dur=10.0):
+        """Ambient electronic: bas pulsant + hum electric + arpeggio minor."""
+        np = self._np; SR = self.SR
+        t  = self._t(dur)
+
+        bass  = np.sin(2*np.pi*55*t) * 0.28
+        bass *= 0.55 + 0.45 * np.sin(2*np.pi*1.5*t)
+
+        hum = (np.sin(2*np.pi*110*t)*0.10 +
+               np.sin(2*np.pi*220*t)*0.06 +
+               np.sin(2*np.pi*330*t)*0.03)
+
+        arp_fr = [110, 130.8, 164.8, 196.0, 164.8, 130.8]
+        arp_rt = 3.0
+        arp    = np.zeros(len(t))
+        for bi in range(int(dur * arp_rt)):
+            si = int(bi / arp_rt * SR)
+            ei = min(int((bi+1) / arp_rt * SR), len(t))
+            f  = arp_fr[bi % len(arp_fr)]
+            lt = t[si:ei] - t[si]
+            arp[si:ei] = np.sin(2*np.pi*f*lt) * 0.13 * np.exp(-lt*7)
+
+        return self._mix(bass, hum, arp)
+
+    def _gen_prestart(self, dur=8.0):
+        """Muzica de lift (pentatonica) + electrosocuri la intervale fixe."""
+        np = self._np; SR = self.SR
+        t  = self._t(dur)
+
+        elev_notes = [392, 440, 493.9, 587.3, 659.3, 587.3, 493.9, 440]
+        nd   = dur / len(elev_notes)
+        mel  = np.zeros(len(t))
+        for i, fr in enumerate(elev_notes):
+            si = int(i * nd * SR); ei = int((i+1) * nd * SR)
+            lt = np.linspace(0, nd, ei-si, endpoint=False)
+            mel[si:ei] = (np.sin(2*np.pi*fr*lt)*0.28 +
+                          np.sin(2*np.pi*fr*2*lt)*0.10) * np.exp(-lt*2.5)
+
+        bass = np.sin(2*np.pi*98*t)*0.18 * (0.5+0.5*np.sin(2*np.pi*0.8*t))
+
+        shock_track = np.zeros(len(t))
+        for st in [1.2, 3.0, 5.4, 7.1]:
+            si = int(st * SR); ei = min(si + int(0.12*SR), len(t))
+            raw = (np.random.random(ei-si)*2-1)
+            env = np.exp(-np.linspace(0, 18, ei-si))
+            shock_track[si:ei] += raw * env * 0.55
+
+        return self._mix(mel, bass, shock_track)
+
+    # ── Playback ──────────────────────────────────────────────────────────────
+    def _play_bg(self, snd):
+        if self._ch_bg:
+            self._ch_bg.stop()
+            self._ch_bg.play(snd, loops=-1)
+
+    def update(self, new_state, hits, timer_val):
+        """Apelat la fiecare tick din game_thread_func."""
+        if not self._ok: return
+        prev = self._prev_state
+
+        # Tranzitii de stare
+        if new_state != prev:
+            if   new_state == "PLAYING":
+                self._timer_warned = False
+                self._ch_tmr.stop()
+                self._play_bg(self.snd_bg)
+            elif new_state == "PRE_GAME_TIMER":
+                self._play_bg(self.snd_prestart)
+            elif new_state in ("LOBBY", "BETWEEN_ROUNDS"):
+                self._ch_bg.stop()
+                self._ch_tmr.stop()
+                self._timer_warned = False
+            if   new_state == "WIN":
+                self._ch_bg.stop()
+                self._ch_tmr.stop()
+                self._ch_end.play(self.snd_win)
+            elif new_state == "GAMEOVER":
+                self._ch_bg.stop()
+                self._ch_tmr.stop()
+                self._ch_end.play(self.snd_fail)
+
+        # Tinta prinsa
+        if hits > self._prev_hits:
+            self._ch_sfx.play(self.snd_ding)
+        self._prev_hits = hits
+
+        # Timer 10 secunde
+        if new_state == "PLAYING" and 0 < timer_val <= 10.0 and not self._timer_warned:
+            self._timer_warned = True
+            self._ch_bg.set_volume(0.35)  # ducem muzica in fundal
+            self._ch_tmr.play(self.snd_timer)
+
+        self._prev_state = new_state
+
+# Instanta globala (initializata in main)
+sound_mgr: "SoundManager | None" = None
+
+# ── Detectare monitoare ────────────────────────────────────────────────────────
+def detect_monitors():
+    """
+    Returneaza lista de monitoare: [{'x':..,'y':..,'w':..,'h':..}, ...]
+    Sortat dupa pozitia x (stanga la dreapta).
+    """
+    monitors = []
+
+    # Metoda 1: screeninfo
+    try:
+        from screeninfo import get_monitors
+        for m in get_monitors():
+            monitors.append({'x': m.x, 'y': m.y, 'w': m.width, 'h': m.height})
+    except Exception:
+        pass
+
+    # Metoda 2: xrandr (fallback Linux)
+    if not monitors:
+        try:
+            import subprocess, re
+            out = subprocess.check_output(
+                ['xrandr', '--current'], stderr=subprocess.DEVNULL
+            ).decode()
+            for mm in re.finditer(r'(\d+)x(\d+)\+(\d+)\+(\d+)', out):
+                monitors.append({
+                    'x': int(mm.group(3)), 'y': int(mm.group(4)),
+                    'w': int(mm.group(1)), 'h': int(mm.group(2))
+                })
+        except Exception:
+            pass
+
+    if not monitors:
+        monitors = [{'x': 0, 'y': 0, 'w': 1920, 'h': 1080}]
+
+    monitors.sort(key=lambda m: m['x'])   # stanga → dreapta
+    print(f"[Monitor] {len(monitors)} ecran(e): "
+          + ", ".join(f"{m['w']}x{m['h']}@({m['x']},{m['y']})" for m in monitors))
+    return monitors
+
+MONITORS = []   # populat in main inainte de crearea ferestrelor
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  ECRAN EXTERIOR — Panou de control
 # ══════════════════════════════════════════════════════════════════════════════
@@ -532,9 +782,18 @@ class ExteriorWindow(tk.Toplevel):
         super().__init__(master)
         self.title("⚡ TENSIUNEA — Panou Exterior")
         self.configure(bg="#0a0a0f")
-        self.geometry("780x500")
         self.resizable(True, True)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Pozitionare pe monitorul EXTERIOR (al doilea daca exista, altfel primul)
+        if len(MONITORS) >= 2:
+            m_ext = MONITORS[1]   # al doilea monitor = exterior
+        else:
+            m_ext = MONITORS[0] if MONITORS else {'x': 0, 'y': 0, 'w': 800, 'h': 600}
+
+        self.geometry(f"{m_ext['w']}x{m_ext['h']}+{m_ext['x']}+{m_ext['y']}")
+        self.after(200, lambda: self.attributes('-fullscreen', True))
+        self.bind('<Escape>', lambda e: self.attributes('-fullscreen', False))
 
         self._num_players = tk.IntVar(value=2)
         self._build()
@@ -563,7 +822,20 @@ class ExteriorWindow(tk.Toplevel):
                  font=f_title, bg=BG, fg=ACCENT).pack(pady=(22, 2))
         tk.Label(self, text="Câmpul electric al podelei — Panou Exterior",
                  font=f_sub, bg=BG, fg="#444466").pack()
-        tk.Frame(self, bg=ACCENT, height=2).pack(fill=tk.X, padx=50, pady=10)
+        tk.Frame(self, bg=ACCENT, height=2).pack(fill=tk.X, padx=50, pady=6)
+
+        # ── TUTORIAL SCURT ────────────────────────────────────────────────────
+        tut_frm = tk.Frame(self, bg="#0d0d1a", bd=0, relief="flat")
+        tut_frm.pack(fill=tk.X, padx=60, pady=(4, 2))
+        tk.Label(tut_frm,
+                 text="🟠 Pol+ (roşu) ⇄ Pol− (albastru): mişcați-vă pe podea formand o linie electrică — evitați izolatorii portocalii!",
+                 font=tkfont.Font(family="Arial", size=11, slant="italic"),
+                 bg="#0d0d1a", fg="#aaaacc", anchor="w").pack(fill=tk.X, padx=12, pady=(8, 2))
+        tk.Label(tut_frm,
+                 text="🟢 Conduceți linia prin toate țintele verzi în timpul limitat. Conductori: ghidați linia prin zone dificile!",
+                 font=tkfont.Font(family="Arial", size=11, slant="italic"),
+                 bg="#0d0d1a", fg="#aaaacc", anchor="w").pack(fill=tk.X, padx=12, pady=(2, 8))
+        tk.Frame(self, bg=ACCENT, height=1).pack(fill=tk.X, padx=50, pady=6)
 
         frm = tk.Frame(self, bg=BG)
         frm.pack(pady=10)
@@ -612,11 +884,17 @@ class ExteriorWindow(tk.Toplevel):
         tk.Frame(self, bg="#1a1a30", height=1).pack(fill=tk.X, padx=50, pady=8)
         legend = tk.Frame(self, bg=BG)
         legend.pack()
+        
+        # LEGENDA REPARATA: Patrate colorate in loc de tupluri numerice
         items = [(C_POS, "Pol +"), (C_NEG, "Pol −"), (C_LINE, "Linie"),
-                 (C_ISO, "Izolator"), (C_TGT, "Țintă"), (C_HIT, "Prins"), (C_COND, "Conductor")]
-        for i, (ic, lb) in enumerate(items):
-            tk.Label(legend, text=f"{ic} {lb}", font=f_info,
-                     bg=BG, fg="#8888aa").grid(row=0, column=i, padx=10, pady=4)
+                 (C_ISO, "Izolator"), (C_TGT, "Țintă"), (C_HIT, "Prins"), (C_COND, "Conductor"), (C_BORDER, "Safe Zone")]
+                 
+        for i, (color_tuple, lb) in enumerate(items):
+            hex_color = rgb_hex(*color_tuple)
+            item_frm = tk.Frame(legend, bg=BG)
+            item_frm.grid(row=0, column=i, padx=8, pady=4)
+            tk.Label(item_frm, text="■", font=f_info, bg=BG, fg=hex_color).pack(side=tk.LEFT)
+            tk.Label(item_frm, text=lb, font=f_info, bg=BG, fg="#8888aa").pack(side=tk.LEFT, padx=2)
 
     def _inc(self):
         v = self._num_players.get()
@@ -722,8 +1000,13 @@ class InteriorWindow(tk.Tk):
         super().__init__()
         self.title("⚡ TENSIUNEA — HUD Interior")
         self.configure(bg="#000010")
-        self.geometry("960x560")
         self.resizable(True, True)
+
+        # Pozitionare pe monitorul INTERIOR (primul monitor detectat)
+        m_int = MONITORS[0] if MONITORS else {'x': 0, 'y': 0, 'w': 1920, 'h': 1080}
+        self.geometry(f"{m_int['w']}x{m_int['h']}+{m_int['x']}+{m_int['y']}")
+        self.after(200, lambda: self.attributes('-fullscreen', True))
+        self.bind('<Escape>', lambda e: self.attributes('-fullscreen', False))
 
         self._anim_t = 0.0
         self._last_t = time.time()
@@ -789,28 +1072,22 @@ class InteriorWindow(tk.Tk):
             self._tiles.append(lb)
 
         self.frm_end = tk.Frame(self, bg=BG)
-        
         self.lbl_end_emojis = tk.Label(self.frm_end, text="", font=("Arial", 46), bg=BG, fg="white")
         self.lbl_end_emojis.pack(pady=(80, 10))
-        
         self.lbl_end_title = tk.Label(self.frm_end, text="", font=("Arial", 60, "bold"), bg=BG, fg="white")
         self.lbl_end_title.pack(pady=10)
-        
         self.lbl_end_reason = tk.Label(self.frm_end, text="", font=("Arial", 24), bg=BG, fg="white")
         self.lbl_end_reason.pack(pady=20)
-        
         self.lbl_end_stats = tk.Label(self.frm_end, text="", font=("Arial", 20), bg=BG, fg="white")
         self.lbl_end_stats.pack(side=tk.BOTTOM, pady=50)
 
     def _tick(self):
         if not running:
             return
-
         now = time.time()
         self._anim_t += now - self._last_t
         self._last_t  = now
         t = self._anim_t
-
         with lock:
             s      = state
             tl     = time_left
@@ -820,55 +1097,42 @@ class InteriorWindow(tk.Tk):
             rnd    = current_round
             np     = num_players
             rsn    = gameover_reason
-        
             if s == "PRE_GAME_TIMER":
                 disp_time = pre_game_time_left
                 frac = max(0.0, disp_time / PRE_START_WAIT)
             else:
                 disp_time = time_left
                 frac = max(0.0, disp_time / TIMELIM)
-
         if s in ("WIN", "GAMEOVER"):
             self.frm_end.place(relx=0, rely=0, relwidth=1.0, relheight=1.0)
             self.frm_end.lift()
-            
             if s == "GAMEOVER":
                 p = abs(math.sin(t * 4))
                 bg_col = rgb_hex(*lerp_color((30, 0, 0), (70, 0, 0), p))
                 fg_col = rgb_hex(*lerp_color((255, 50, 50), (255, 100, 100), p))
-                
                 self.lbl_end_emojis.config(text="🥀😬🥀", fg=fg_col, bg=bg_col)
                 self.lbl_end_title.config(text="GAME OVER", fg=fg_col, bg=bg_col)
                 self.lbl_end_reason.config(text=rsn, fg="#ffaaaa", bg=bg_col)
-                
                 stats_txt = f"Ținte prinse: {th} / {TGT_N}   |   Pierdut în runda: {rnd}"
                 self.lbl_end_stats.config(text=stats_txt, fg="#ffffff", bg=bg_col)
                 self.frm_end.config(bg=bg_col)
-            
-            else: # WIN
+            else:
                 p = abs(math.sin(t * 2))
                 bg_col = rgb_hex(*lerp_color((0, 30, 10), (0, 70, 20), p))
                 fg_col = rgb_hex(*lerp_color((50, 255, 100), (150, 255, 150), p))
-                
                 self.lbl_end_emojis.config(text="🎊👑🎊", fg=fg_col, bg=bg_col)
                 self.lbl_end_title.config(text="VICTORIE!", fg=fg_col, bg=bg_col)
                 self.lbl_end_reason.config(text="Energie restabilită cu succes!", fg="#aaffaa", bg=bg_col)
-                
                 stats_txt = f"Scor total: {tsc}   |   Ținte prinse: {th} / {TGT_N}"
                 self.lbl_end_stats.config(text=stats_txt, fg="#ffffff", bg=bg_col)
                 self.frm_end.config(bg=bg_col)
-
             self.after(50, self._tick)
             return
-        
         self.frm_end.place_forget()
-
         self.lbl_round.config(text=f"RUNDA {rnd} / {TOTAL_ROUNDS}")
         self.lbl_np.config(text=f"👥 {np}")
-
         mins, secs = int(disp_time) // 60, int(disp_time) % 60
         self.lbl_timer.config(text=f"{mins}:{secs:02d}")
-
         if s == "PRE_GAME_TIMER":
             col = (0, 255, 255) 
         elif frac > 0.5:
@@ -879,7 +1143,6 @@ class InteriorWindow(tk.Tk):
             p   = abs(math.sin(t * 5))
             col = lerp_color((80, 0, 0), (255, 20, 0), p)
         self.lbl_timer.config(fg=rgb_hex(*col))
-
         self.bar.update_idletasks()
         bw = self.bar.winfo_width() or 1
         self.bar.delete("all")
@@ -887,10 +1150,8 @@ class InteriorWindow(tk.Tk):
         fw = int(bw * frac)
         if fw > 0:
             self.bar.create_rectangle(0, 0, fw, 14, fill=rgb_hex(*col), outline="")
-
         self.lbl_score.config(text=str(sc))
         self.lbl_total.config(text=str(tsc))
-
         self.lbl_tgt.config(text=f"{th} / {TGT_N}")
         for i, lb in enumerate(self._tiles):
             if i < th:
@@ -898,7 +1159,6 @@ class InteriorWindow(tk.Tk):
                 lb.config(fg=rgb_hex(*lerp_color((120, 255, 120), (255, 255, 255), p)))
             else:
                 lb.config(fg="#0d2e18")
-
         if s == "PRE_GAME_TIMER":
             msg  = "PREGĂTIȚI-VĂ!\nSTART ÎN CURÂND"
             mcol = "#00ffff"
@@ -920,23 +1180,24 @@ class InteriorWindow(tk.Tk):
             msg  = ""
             mcol = "#ffffff"
             bg   = "#000010"
-
         self.lbl_msg.config(text=msg, fg=mcol)
         self.configure(bg=bg)
-
         self.after(50, self._tick)
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    net = Net()
+    # 1. Detectam monitoarele inainte de orice altceva
+    MONITORS = detect_monitors()
 
+    # 2. Initializam SoundManager
+    sound_mgr = SoundManager()
+
+    net = Net()
     threading.Thread(target=send_loop,       args=(net,), daemon=True).start()
     threading.Thread(target=recv_floor_loop,              daemon=True).start()
     threading.Thread(target=game_thread_func,             daemon=True).start()
-
     root     = InteriorWindow()
     exterior = ExteriorWindow(root)
-
-    print("⚡ TENSIUNEA pornit.")
+    print("\u26a1 TENSIUNEA pornit.")
     root.mainloop()
     running = False
