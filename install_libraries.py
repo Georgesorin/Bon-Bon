@@ -17,7 +17,7 @@ def main():
     print(f"Python Version: {sys.version.split()[0]}")
     print("-" * 45)
 
-    dependencies = ["psutil", "pygame"]
+    dependencies = ["psutil", "pygame", "numpy"]
     
     # 1. Standard Pip dependencies
     print(f"Installing Python packages: {', '.join(dependencies)}...")
