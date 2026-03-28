@@ -148,7 +148,9 @@ class LobbyWindow(tk.Toplevel):
         self._root = root
         self.title("KERNEL DEFENDER – LOBBY")
         self.configure(bg=BG)
-        self.geometry("700x740+0+0")
+        self.geometry("+0+0")
+        self.attributes("-fullscreen", True)
+        self.bind("<Escape>", lambda e: self.attributes("-fullscreen", False))
         self.resizable(True, True)
         self.protocol("WM_DELETE_WINDOW", self._quit_app)
         self._pc    = tk.IntVar(value=4)
@@ -388,7 +390,10 @@ class HUDWindow(tk.Toplevel):
         self._root = root
         self.title("KERNEL DEFENDER – HUD")
         self.configure(bg=BG)
-        self.geometry("600x720+720+0")
+        sw = root.winfo_screenwidth()
+        self.geometry(f"+{sw}+0")
+        self.attributes("-fullscreen", True)
+        self.bind("<Escape>", lambda e: self.attributes("-fullscreen", False))
         self.resizable(True, True)
         self.protocol("WM_DELETE_WINDOW", self._quit_app)
         self._blink  = False
@@ -670,8 +675,7 @@ def main():
     lobby = LobbyWindow(root, tel, cmd)
     hud   = HUDWindow(root, tel, cmd)
 
-    # Bind Escape on root as emergency exit
-    root.bind_all("<Escape>", lambda e: (cmd.quit(), root.destroy()))
+    # The user can click the QUIT buttons on the UI to exit cleanly!
 
     root.mainloop()
 

@@ -9,9 +9,9 @@ import os
 import json as _json
 
 # --- Networking Constants ---
-UDP_SEND_IP        = "192.168.1.255"
-UDP_SEND_PORT      = 6666
-UDP_LISTEN_PORT    = 6667
+UDP_SEND_IP        = "255.255.255.255"
+UDP_SEND_PORT      = 4626
+UDP_LISTEN_PORT    = 7800
 UDP_TELEMETRY_PORT = 6668   # Game → KD_Displays.py  (state packets)
 UDP_CMD_PORT       = 6669   # KD_Displays.py → Game  (command packets)
 
