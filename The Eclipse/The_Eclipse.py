@@ -27,8 +27,8 @@ import subprocess
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants
 # ──────────────────────────────────────────────────────────────────────────────
-UDP_DEVICE_PORT    = 4626
-UDP_BUTTON_PORT    = 7800
+UDP_DEVICE_PORT    = 12345
+UDP_BUTTON_PORT    = 54321
 UDP_TELEMETRY_PORT = 6666
 UDP_CMD_PORT       = 6667
 
@@ -957,8 +957,9 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"[ECLIPSE] ⚠ Could not launch displays: {e}")
 
-    # Discover hardware
-    device_ip = discover_device()
+    # Discover hardware / Hardcoded IPs from mentor
+    device_ip = "169.254.162.11"
+    print(f"[HARDWARE] Using mentor-provided IP: {device_ip} and ports {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
 
     # Create game & services
     game = EclipseGame()
