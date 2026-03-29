@@ -324,9 +324,9 @@ class GameLogic:
         self.last_timer_beep = 0
 
     def get_global_color(self):
-        if self.misses_total <= 1: return (0, 255, 0)
-        elif self.misses_total <= 3: return (200, 160, 0)
-        else: return (255, 0, 0)
+        # Pentru pereții activi pe care NU trebuie să apeși: Culoare ROȘIE (Avertizare!)
+        if self.misses_total <= 5: return (255, 40, 0) # Roșu pal spre portocaliu
+        else: return (255, 0, 0) # Roșu sânge (Atenție extremă)
 
     def set_phase(self, ph):
         self.phase = ph
@@ -516,9 +516,10 @@ class GameLogic:
                 else:
                     new_leds[(c, 0)] = (int(g_col[0]*0.2), int(g_col[1]*0.2), int(g_col[2]*0.2))
 
-                blink = int(abs(math.sin(now * 8)) * 255) # Pulsare rapidă pentru țintele mici
+                blink = int(abs(math.sin(now * 10)) * 155 + 100) # Pulsare de la 100 la 255
                 for i in range(1, 11):
-                    new_leds[(c, i)] = (blink, 0, 255) if (c, i) in a_targets else (0, 0, 0)
+                    # ȚINTELE BUNE = VERDE PULSANT!
+                    new_leds[(c, i)] = (0, blink, 0) if (c, i) in a_targets else (0, 0, 0)
 
         with game_lock:
             if new_leds != self.led_state_cache:
