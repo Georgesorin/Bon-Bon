@@ -333,11 +333,11 @@ class GameLogic:
         self.round_counter = 0
         self.consecutive_hits = 0
         if ph == 1:
-            self.tempo = 3.5; self.window = 3.3
+            self.tempo = 6.0; self.window = 5.8
         elif ph == 2:
-            self.tempo = 2.8; self.window = 2.6
+            self.tempo = 5.5; self.window = 5.3
         elif ph == 3:
-            self.tempo = 2.2; self.window = 2.0
+            self.tempo = 5.0; self.window = 4.8
 
     def reset(self):
         with game_lock:
@@ -516,8 +516,9 @@ class GameLogic:
                 else:
                     new_leds[(c, 0)] = (int(g_col[0]*0.2), int(g_col[1]*0.2), int(g_col[2]*0.2))
 
+                blink = int(abs(math.sin(now * 8)) * 255) # Pulsare rapidă pentru țintele mici
                 for i in range(1, 11):
-                    new_leds[(c, i)] = (255, 255, 255) if (c, i) in a_targets else (0, 0, 0)
+                    new_leds[(c, i)] = (blink, 0, 255) if (c, i) in a_targets else (0, 0, 0)
 
         with game_lock:
             if new_leds != self.led_state_cache:
