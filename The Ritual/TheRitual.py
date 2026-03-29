@@ -29,7 +29,7 @@ else:
 CFG_FILE = os.path.join(BUNDLE_DIR, "ritual_config.json")
 
 def load_cfg():
-    cfg = {"device_ip": "169.254.162.11", "send_port": 12345, "recv_port": 54321}
+    cfg = {"device_ip": "169.254.182.11", "send_port": 4626, "recv_port": 7800}
     try:
         if os.path.exists(CFG_FILE):
             with open(CFG_FILE) as f:
@@ -311,11 +311,11 @@ class GameLogic:
         self.round_counter = 0
         self.consecutive_hits = 0
         if ph == 1:
-            self.tempo = 2.0; self.window = 1.8
+            self.tempo = 3.5; self.window = 3.3
         elif ph == 2:
-            self.tempo = 1.6; self.window = 1.4
+            self.tempo = 2.8; self.window = 2.6
         elif ph == 3:
-            self.tempo = 1.1; self.window = 1.0
+            self.tempo = 2.2; self.window = 2.0
 
     def reset(self):
         with game_lock:
@@ -345,9 +345,19 @@ class GameLogic:
             if ev == "DOWN":
                 with game_lock:
                     if self.state == "PLAYING" and idx > 0:
+                        # ----- HITBOX PERMISIV (Anti-Offset Hardware) -----
+                        # Dacă apasă fix butonul, cel de lângă din stânga, sau cel din dreapta, este acceptat
+                        hit_target = None
                         if (ch, idx) in self.active_targets:
+                            hit_target = (ch, idx)
+                        elif (ch, idx - 1) in self.active_targets:
+                            hit_target = (ch, idx - 1)
+                        elif (ch, idx + 1) in self.active_targets:
+                            hit_target = (ch, idx + 1)
+                            
+                        if hit_target:
                             # Hit!
-                            self.active_targets.remove((ch, idx))
+                            self.active_targets.remove(hit_target)
                             self.snd.play_good()
                             self.consecutive_hits += 1
                         else:
@@ -380,8 +390,7 @@ class GameLogic:
         self.consecutive_hits = 0
         self.snd.play_bad()
         if self.phase == 2:
-            self.tempo = max(1.1, self.tempo * 0.95)
-            self.window = max(1.0, self.window * 0.95)
+            pass # Am sters penalizarea de timp pentru ca jocul sa ramana abordabil
 
     def _trigger_beat(self, now):
         self.beat_time = now
