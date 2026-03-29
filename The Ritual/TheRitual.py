@@ -123,8 +123,8 @@ class EvilEyeNet:
         for (ch, led), (r, g, b) in led_states.items():
             ch_idx = ch - 1
             if 0 <= ch_idx < NUM_CHANNELS and 0 <= led < LEDS_PER_CHANNEL:
-                frame[led * 12 + ch_idx]     = int(min(255, max(0, g)))
-                frame[led * 12 + 4 + ch_idx] = int(min(255, max(0, r)))
+                frame[led * 12 + ch_idx]     = int(min(255, max(0, r)))
+                frame[led * 12 + 4 + ch_idx] = int(min(255, max(0, g)))
                 frame[led * 12 + 8 + ch_idx] = int(min(255, max(0, b)))
         
         try:
