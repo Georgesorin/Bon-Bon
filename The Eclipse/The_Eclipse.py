@@ -43,8 +43,8 @@ if DEBUG_MODE:
     UDP_DEVICE_PORT    = 4626
     UDP_BUTTON_PORT    = 7800
 else:
-    UDP_DEVICE_PORT    = 12345
-    UDP_BUTTON_PORT    = 54321
+    UDP_DEVICE_PORT    = 4626
+    UDP_BUTTON_PORT    = 7800
 
 UDP_TELEMETRY_PORT = 6666
 UDP_CMD_PORT       = 6667
@@ -82,14 +82,9 @@ ORANGE     = (255, 140, 0)
 GOLD       = (255, 180, 0)
 
 # ── Room topology ─────────────────────────────────────────────────────────────
-ADJACENT_WALLS = {1: [2, 4], 2: [1, 3], 3: [2, 4], 4: [1, 3]}
-
-# Button pairs close together (for distraction – reachable with two hands)
-CLOSE_PAIRS = [
-    (1, 2), (2, 3), (3, 4), (4, 5),
-    (6, 7), (7, 8), (8, 9), (9, 10),
-    (1, 6), (2, 7), (3, 8), (4, 9), (5, 10),
-]
+# Hardware mirroring means we only use 2 distinct Logical Channels.
+# Channel 1 (Walls N/S) and Channel 2 (Walls E/W).
+# When Eye is Ch 1, Safe Zone / Distraction is Ch 2.
 
 # ── Checksum ──────────────────────────────────────────────────────────────────
 PASSWORD_ARRAY = [
@@ -185,8 +180,8 @@ def build_frame_data(led_states: dict) -> bytes:
     for (ch, led), (r, g, b) in led_states.items():
         idx = ch - 1
         if 0 <= idx < NUM_CHANNELS and 0 <= led < LEDS_PER_CHANNEL:
-            frame[led * 12 + idx]     = g
-            frame[led * 12 + 4 + idx] = r
+            frame[led * 12 + idx]     = r
+            frame[led * 12 + 4 + idx] = g
             frame[led * 12 + 8 + idx] = b
     return bytes(frame)
 
@@ -530,8 +525,8 @@ class EclipseGame:
             self.current_round = 0
             self.score         = 0
 
-            # Randomise eye order
-            self.eye_order = list(range(1, NUM_CHANNELS + 1))
+            # Randomise eye order strictly using physical Channels 1 & 2
+            self.eye_order = [1, 2, 1, 2, 1, 2][:self.total_rounds]
             random.shuffle(self.eye_order)
 
             self.state = "PLAYING"
@@ -562,12 +557,11 @@ class EclipseGame:
 
         self.current_eye_wall = self.eye_order[self.current_round]
 
-        # Pick random adjacent wall for distraction
-        adj_options = ADJACENT_WALLS[self.current_eye_wall]
-        self.distraction_wall = random.choice(adj_options)
+        # The distraction wall is the OTHER mirrored channel (3 - 1 = 2; 3 - 2 = 1)
+        self.distraction_wall = 3 - self.current_eye_wall
 
-        # Pick distraction buttons (2 close together)
-        self.distraction_btns = list(random.choice(CLOSE_PAIRS))
+        # Pick ONE ONLY random distraction button
+        self.distraction_btns = [random.randint(1, 10)]
 
         # Pick pattern buttons (depends on player count)
         pattern_count = max(2, self.player_count)  # 2p→2, 3p→3, 4p→4
@@ -975,6 +969,7 @@ if __name__ == "__main__":
         device_ip = "127.0.0.1"
         print(f"[HARDWARE] DEBUG MODE: Using local simulator at {device_ip} on ports {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
     else:
+<<<<<<< HEAD
         # Preluam IP-ul real prin zero-click auto-discovery!
         discovered_ip = None
         if auto_discover_evileye:
@@ -990,6 +985,11 @@ if __name__ == "__main__":
             UDP_DEVICE_PORT = 4626
             UDP_BUTTON_PORT = 7800
             print(f"> [MANUAL/SIMULATOR] Simulator The Eclipse activat la {device_ip}:{UDP_DEVICE_PORT}")
+=======
+        # Discover hardware / Hardcoded IPs from mentor
+        device_ip = "169.254.182.11"
+        print(f"[HARDWARE] Using mentor-provided IP: {device_ip} and ports {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
+>>>>>>> f6dfe7d (Rework)
 
     # Create game & services
     game = EclipseGame()
