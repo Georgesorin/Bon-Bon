@@ -68,6 +68,14 @@ def auto_discover_evileye(timeout=1.5):
     for iface, ip, bcast in interfaces:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        
+        # Încercăm să ascultăm răspunsul fix pe portul 7800
+        try:
+            sock.bind((ip, 7800))
+        except Exception:
+            pass
+        # ---------------------------------------------
+        
         sock.settimeout(timeout)
         try:
             sock.sendto(pkt, (bcast, 4626))
