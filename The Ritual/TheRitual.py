@@ -193,6 +193,7 @@ class SoundManager:
         self.snd_win  = self._synth_win()
         self.snd_lose = self._synth_lose()
         self.snd_bg   = self._synth_bg()
+        self.snd_timer = self._synth_timer()
         
     def _t(self, dur): return np.linspace(0, dur, int(self.SR * dur), endpoint=False)
     def _to_snd(self, wave):
@@ -211,10 +212,15 @@ class SoundManager:
         return self._to_snd(w * 0.9)
 
     def _synth_bg(self):
-        t = self._t(4.0)
-        w = np.sin(2*np.pi*45*t)*0.2 + np.sin(2*np.pi*90*t)*0.1
-        w *= (0.7 + 0.3*np.sin(2*np.pi*1.0*t))
-        return self._to_snd(w)
+        # Illuminati / Ritual drone
+        t = self._t(10.0)
+        # Deep bass 73 Hz + harmonics for chanting feel
+        w = np.sin(2*np.pi*73*t)*0.35 + np.sin(2*np.pi*110*t)*0.2 + np.sin(2*np.pi*146*t)*0.1
+        # Slow pulsing wobble (chorus)
+        w += np.sin(2*np.pi * (73 + 0.5 * np.sin(2*np.pi*0.2*t)) * t) * 0.15
+        # Amplitude swelling (breathing/chanting)
+        w *= (0.5 + 0.5*np.sin(2*np.pi*0.4*t))
+        return self._to_snd(w * 0.8)
 
     def _synth_win(self):
         t = self._t(3.0)
@@ -228,9 +234,20 @@ class SoundManager:
         return self._to_snd(w)
         
     def _synth_lose(self):
-        t = self._t(2.0)
-        w = np.sin(2*np.pi* (200 - 100*t) * t) * np.exp(-t*1.5)
-        return self._to_snd(w * 0.6)
+        # Flame ignition / Torch sound
+        t = self._t(3.0)
+        noise = np.random.normal(0, 1, len(t))
+        # envelope: fast attack, slow fade
+        env = np.exp(-t * 1.5)
+        # Low frequency rumble of fire
+        rumble = np.sin(2*np.pi*40*t) * np.exp(-t * 0.5)
+        w = (noise * 0.5 + rumble * 0.8) * env
+        return self._to_snd(w)
+        
+    def _synth_timer(self):
+        t = self._t(0.15)
+        w = np.sin(2*np.pi*1000*t) * np.exp(-t * 15)
+        return self._to_snd(w * 0.3)
 
     def play_bg(self):
         if not self.ch_bg.get_busy():
@@ -242,6 +259,7 @@ class SoundManager:
     def play_bad(self): self.ch_sfx.play(self.snd_bad)
     def play_win(self): self.ch_bg.play(self.snd_win)
     def play_lose(self): self.ch_bg.play(self.snd_lose)
+    def play_timer(self): self.ch_beat.play(self.snd_timer)
 
 
 # ── Monitor Detection ─────────────────────────────────────────────────────────
@@ -300,6 +318,10 @@ class GameLogic:
         self.pulse_walls = [1, 2, 3, 4]
         self.round_counter = 0
         self.led_state_cache = {}
+        
+        self.pre_start_timer = 5.0
+        self.pre_start_time = 0.0
+        self.last_timer_beep = 0
 
     def get_global_color(self):
         if self.misses_total <= 1: return (0, 255, 0)
@@ -321,11 +343,12 @@ class GameLogic:
         with game_lock:
             self.misses_total = 0
             self.set_phase(1)
-            self.state = "PLAYING"
+            self.state = "PRE_START"
+            self.pre_start_timer = 5.0
+            self.pre_start_time = time.time()
+            self.last_timer_beep = 6
             self.pulse_seq_idx = 0
-            self.next_beat = time.time() + 1.0
             self.active_targets.clear()
-            self.snd.play_bg()
             
             # Simple scaling: restrict active walls if only 2 players
             if self.num_players == 2:
@@ -339,6 +362,19 @@ class GameLogic:
         now = time.time()
         
         with game_lock:
+            if self.state == "PRE_START":
+                elapsed = now - self.pre_start_time
+                sec_left = int(self.pre_start_timer - elapsed)
+                if sec_left < self.last_timer_beep and sec_left > 0:
+                    self.snd.play_timer()
+                    self.last_timer_beep = sec_left
+                
+                if elapsed >= self.pre_start_timer:
+                    self.state = "PLAYING"
+                    self.next_beat = now + 1.0
+                    self.snd.play_bg()
+                return
+
             events = self.net.get_events()
             
         for (ch, idx, ev) in events:
@@ -445,6 +481,16 @@ class GameLogic:
             for c in range(1, NUM_CHANNELS+1):
                 new_leds[(c, 0)] = col
                 for i in range(1, 11): new_leds[(c, i)] = col
+
+        elif state == "PRE_START":
+            elapsed = now - self.pre_start_time
+            remaining = int(self.pre_start_timer - elapsed)
+            b = int(abs(math.sin(now * np.pi * 2)) * 255)
+            col = (0, b, b) # Cyan pulsing countdown
+            for c in range(1, NUM_CHANNELS+1):
+                new_leds[(c, 0)] = col
+                for i in range(1, 11): 
+                    new_leds[(c, i)] = col if i <= remaining * 2 else (0,0,0)
 
         elif state == "WIN":
             for c in range(1, NUM_CHANNELS+1):
