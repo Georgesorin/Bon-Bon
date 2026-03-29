@@ -969,7 +969,6 @@ if __name__ == "__main__":
         device_ip = "127.0.0.1"
         print(f"[HARDWARE] DEBUG MODE: Using local simulator at {device_ip} on ports {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
     else:
-<<<<<<< HEAD
         # Preluam IP-ul real prin zero-click auto-discovery!
         discovered_ip = None
         if auto_discover_evileye:
@@ -977,19 +976,14 @@ if __name__ == "__main__":
             
         if discovered_ip:
             device_ip = discovered_ip
-            UDP_DEVICE_PORT = 4626
+            UDP_DEVICE_PORT = 4624
             UDP_BUTTON_PORT = 7800
-            print(f"> [AUTO] Spirtism atașat la Hardware Real: {device_ip} pe 4626/7800")
+            print(f"> [AUTO] Spirtism atașat la Hardware Real: {device_ip} pe 4624/7800")
         else:
-            device_ip = "127.0.0.1"
-            UDP_DEVICE_PORT = 4626
+            device_ip = "169.254.182.11"
+            UDP_DEVICE_PORT = 4624
             UDP_BUTTON_PORT = 7800
-            print(f"> [MANUAL/SIMULATOR] Simulator The Eclipse activat la {device_ip}:{UDP_DEVICE_PORT}")
-=======
-        # Discover hardware / Hardcoded IPs from mentor
-        device_ip = "169.254.182.11"
-        print(f"[HARDWARE] Using mentor-provided IP: {device_ip} and ports {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
->>>>>>> f6dfe7d (Rework)
+            print(f"[HARDWARE] Folosim IP dictat de mentor: {device_ip} pe {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
 
     # Create game & services
     game = EclipseGame()
