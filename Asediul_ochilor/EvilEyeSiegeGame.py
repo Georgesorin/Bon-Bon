@@ -12,7 +12,7 @@ _CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "asediul
 def _load_config():
     defaults = {
         # --- Configurare Rețea / Porturi ---
-        "device_ip": "127.0.0.1",     # Adresa unde trimitem date (Spre Simulator sau Hardware EvilEye)
+        "device_ip": "169.254.182.11",     # Adresa unde trimitem date (Spre Simulator sau Hardware EvilEye)
         "send_port": 4626,            # Portul către care TRIMITEM frame-uri cu culori
         "recv_port": 7800,            # Portul pe care ASCULTĂM apăsările de butoane
         "bind_ip": "0.0.0.0",         # IP-ul pe care facem host la pachetele de intrare
@@ -82,6 +82,7 @@ class EvilEyeSiegeGame:
         self.red_eyes = []              # Lista canalelor pe care a apărut ochi roșu
         self.yellow_locs = []           # Locațiile triggerelor Galbene (de imobilizare)
         self.yellow_states = {}         # Dictionar {(ch, led): bool} pentru menținerea apăsării
+        self.yellow_release_timers = {} # Timers pentru debouncing la eliberare (hardware fix)
         
         # Multithreading / Siguranță
         self._running = False
@@ -104,6 +105,7 @@ class EvilEyeSiegeGame:
             self.red_eyes = []
             self.yellow_locs = []
             self.yellow_states = {}
+            self.yellow_release_timers = {}
             
             if self.light:
                 self.light.all_off()
@@ -129,7 +131,10 @@ class EvilEyeSiegeGame:
 
     def handle_button_event(self, ch, led, is_pressed, is_disconnected=False):
         """Funcția care interceptează pachetele UDP hardware"""
-        if led == 0:
+        # Corectare decalaj cablare hardware (Buton 1 fizic trimite 0, noi vrem 1)
+        led = led + self.config.get('button_offset', 1)
+        
+        if led <= 0:
             return 
             
         with self._lock:
@@ -139,6 +144,10 @@ class EvilEyeSiegeGame:
             loc = (ch, led)
             
             if is_pressed:
+                # DEBUG pt camera fizica:
+                if self.state == GameState.PHASE_1:
+                    print(f"  [DEBUG-HARDWARE] S-a inregistrat lovitură pe Peretele {ch}, Buton {led}. (Asteptate: {self.active_blues})")
+                
                 # ─── LOGICĂ PENTRU APĂSARE ───
                 
                 # Faza 1
@@ -156,8 +165,11 @@ class EvilEyeSiegeGame:
                 elif self.state in (GameState.PHASE_2, GameState.PHASE_3, GameState.PHASE_2_REPEAT):
                     # Buton GALBEN (Hold point pt Imobilizare)
                     if loc in self.yellow_locs:
-                        self.yellow_states[loc] = True
-                        print(f"  > Imobilizare confirmată! Buton Galben ({ch},{led}) APĂSAT!")
+                        if loc in self.yellow_release_timers:
+                            del self.yellow_release_timers[loc]
+                        if not self.yellow_states.get(loc, False):
+                            self.yellow_states[loc] = True
+                            print(f"  > Imobilizare confirmată! Buton Galben ({ch},{led}) APĂSAT!")
                         
                     # Buton ALBASTRU (Atac pe boss)
                     elif loc in self.active_blues:
@@ -176,13 +188,9 @@ class EvilEyeSiegeGame:
                 # ─── LOGICĂ PENTRU ELIBERARE BUTON ───
                 if self.state in (GameState.PHASE_2, GameState.PHASE_3, GameState.PHASE_2_REPEAT):
                     if loc in self.yellow_locs:
-                        if self.yellow_states.get(loc, False):
-                            # Eliberat înainte de victorie -> EROARE MORTALĂ
-                            self.yellow_states[loc] = False
-                            if self.config.get('strict_hold', True):
-                                self._trigger_game_over(reason=f"Mână eliberată de pe butonul Galben ({ch},{led}) prea devreme!")
-                            else:
-                                print(f"  [Simulator Mode] Mână eliberată de pe Galben ({ch},{led}) (ignorată).")
+                        if self.yellow_states.get(loc, False) and loc not in self.yellow_release_timers:
+                            # Start timer de toleranță de pană la 1.5sec pentru hardware-bouncing
+                            self.yellow_release_timers[loc] = time.time()
 
 
     def _game_loop(self):
@@ -197,6 +205,23 @@ class EvilEyeSiegeGame:
     def _tick(self, dt):
         """Logica Cronologică Temporală"""
         if self.state in (GameState.LOBBY, GameState.GAME_OVER, GameState.VICTORY):
+            return
+            
+        # --- VERIFICARE DEBOUNCING PENTRU ELIBERARE BUTON GALBEN (Toleranta Hardware) ---
+        if self.state in (GameState.PHASE_2, GameState.PHASE_3, GameState.PHASE_2_REPEAT):
+            current_time = time.time()
+            for loc in list(self.yellow_release_timers.keys()):
+                if current_time - self.yellow_release_timers[loc] > 1.5: # Toleranta 1.5 secunde
+                    ch, y_led = loc
+                    self.yellow_states[loc] = False
+                    del self.yellow_release_timers[loc]
+                    
+                    if self.config.get('strict_hold', True):
+                        self._trigger_game_over(reason=f"Mână eliberată de pe butonul Galben ({ch},{y_led}) prea devreme!")
+                    else:
+                        print(f"  [Simulator Mode] Mână eliberată de pe Galben ({ch},{y_led}) (ignorată).")
+        
+        if self.state in (GameState.GAME_OVER, GameState.VICTORY):
             return
             
         self.phase_timer -= dt
@@ -251,6 +276,7 @@ class EvilEyeSiegeGame:
         y_led = random.randint(1, 10)
         self.yellow_locs = [(wall, y_led)]
         self.yellow_states = {(wall, y_led): False}
+        self.yellow_release_timers = {}
         
         if self.light:
             self.light.set_led(wall, 0, 255, 0, 0)
@@ -283,6 +309,7 @@ class EvilEyeSiegeGame:
         
         self.yellow_locs = [(w1, y1_led), (w2, y2_led)]
         self.yellow_states = {(w1, y1_led): False, (w2, y2_led): False}
+        self.yellow_release_timers = {}
         
         if self.light:
             self.light.set_led(w1, 0, 255, 0, 0)
@@ -314,6 +341,7 @@ class EvilEyeSiegeGame:
         y_led = random.randint(1, 10)
         self.yellow_locs = [(wall, y_led)]
         self.yellow_states = {(wall, y_led): False}
+        self.yellow_release_timers = {}
         
         if self.light:
             self.light.set_led(wall, 0, 255, 0, 0)
@@ -431,13 +459,17 @@ if __name__ == "__main__":
     
     def start_with_players(num_players):
         game.set_config('num_players', num_players)
-        print(f"\n[MENIU] Au fost selectați {num_players} jucători. START JOC!")
+        game.set_config('button_offset', 1 if hw_offset_var.get() else 0)
+        print(f"\n[MENIU] Au fost selectați {num_players} jucători. Offset butoane: {game.config.get('button_offset')}. START JOC!")
         game_started[0] = True
         root.destroy()
         
     # UI Elements
     tk.Label(root, text="ASEDIUL CELOR 4 OCHI DEMONICI", fg="#ff3333", bg="#111", font=("Consolas", 26, "bold")).pack(pady=(30, 10))
     tk.Label(root, text="Selectează câți jucători participă:", fg="white", bg="#111", font=("Consolas", 14)).pack(pady=5)
+    
+    hw_offset_var = tk.BooleanVar(value=True)
+    tk.Checkbutton(root, text="Mod Cameră Fizică (Repară decalajul firelor, Butoane +1)", variable=hw_offset_var, bg="#111", fg="#00ccff", selectcolor="#222", activebackground="#111", activeforeground="#fff", font=("Consolas", 11)).pack(pady=5)
     
     btn_frame = tk.Frame(root, bg="#111")
     btn_frame.pack(pady=20)
