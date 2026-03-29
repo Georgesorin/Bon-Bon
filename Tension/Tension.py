@@ -1,3 +1,10 @@
+"""
+tension.py — "Tensiunea" | Matrix Room 16x32
+Un singur fișier: logică joc + Ecran Exterior + Ecran Interior.
+Porturi: 6666 (trimitere podea), 6667 (recepție podea).
+Rulare: python3 tension.py
+"""
+
 import socket, threading, time, random, json, os, math, sys
 import tkinter as tk
 from tkinter import font as tkfont
@@ -47,7 +54,7 @@ C_BORDER = (255, 20, 147)   # margine roz (Safe Zone)
 ISO_N          = 12
 TGT_N          = 8
 TIMELIM        = 120.0    # 2 minute per rundă
-PRE_START_WAIT = 5.0     # 5 de secunde
+PRE_START_WAIT = 10.0     # 10 de secunde
 TOTAL_ROUNDS   = 2
 
 # ── Stare globală joc ─────────────────────────────────────────────────────────
@@ -476,7 +483,7 @@ def update(dt):
             if p in iso:
                 total_score += score
                 state = "GAMEOVER"
-                gameover_reason = "SCURTCIRCUIT!\nAți atins un izolator maro."
+                gameover_reason = "SCURTCIRCUIT!\nAți atins un izolator portocaliu."
                 print("[!] SCURTCIRCUIT! Linia a atins un izolator.")
                 return
 
@@ -503,7 +510,6 @@ def game_thread_func():
         now    = time.time()
         update(now - last_t)
         last_t = now
-        # Actualizam audio la fiecare tick
         if sound_mgr:
             with lock:
                 s  = state
@@ -521,11 +527,7 @@ def rgb_hex(r, g, b):
 
 # ── SOUND MANAGER ─────────────────────────────────────────────────────────────
 class SoundManager:
-    """
-    Genereaza si readeaza toate sunetele jocului programatic (fara fisiere externe).
-    Necesita: pygame si numpy.  Daca lipsesc, ruleaza in mod silentios.
-    """
-    SR = 44100  # sample rate
+    SR = 44100
 
     def __init__(self):
         self._ok          = False
@@ -535,26 +537,22 @@ class SoundManager:
         try:
             import pygame as _pg
             import numpy  as _np
-            # initializam mixer inainte de display
             _pg.mixer.pre_init(self.SR, -16, 2, 512)
             if not _pg.get_init():
                 _pg.init()
             _pg.mixer.init(frequency=self.SR, size=-16, channels=2, buffer=512)
             self._pg = _pg
             self._np = _np
-            # 4 canale dedicate
             _pg.mixer.set_num_channels(8)
-            self._ch_bg   = _pg.mixer.Channel(0)  # muzica fundal
-            self._ch_sfx  = _pg.mixer.Channel(1)  # ding tinta
-            self._ch_end  = _pg.mixer.Channel(2)  # win / fail
-            self._ch_tmr  = _pg.mixer.Channel(3)  # timer 10s
+            self._ch_bg   = _pg.mixer.Channel(0) 
+            self._ch_sfx  = _pg.mixer.Channel(1) 
+            self._ch_end  = _pg.mixer.Channel(2) 
+            self._ch_tmr  = _pg.mixer.Channel(3) 
             self._build()
             self._ok = True
-            print("[Audio] OK — toate sunetele generate")
         except Exception as e:
             print(f"[Audio] Indisponibil: {e}")
 
-    # ── Primitive waveform ────────────────────────────────────────────────────
     def _t(self, dur):
         return self._np.linspace(0, dur, int(self.SR * dur), endpoint=False)
 
@@ -563,13 +561,6 @@ class SoundManager:
         w = self._np.sin(2 * self._np.pi * freq * t) * vol
         if decay: w *= self._np.exp(-decay * t)
         return w
-
-    def _saw(self, freq, dur, vol=0.3):
-        t = self._t(dur)
-        return (2 * (t * freq - self._np.floor(t * freq + 0.5))) * vol
-
-    def _noise(self, dur, vol=0.4):
-        return (self._np.random.random(int(self.SR * dur)) * 2 - 1) * vol
 
     def _mix(self, *arrs):
         n = max(len(a) for a in arrs)
@@ -586,20 +577,6 @@ class SoundManager:
         stereo = self._np.column_stack([arr, arr]).copy()
         return self._pg.sndarray.make_sound(stereo)
 
-    def _note(self, freq, dur, vol=0.55):
-        """Genereaza o nota muzicala cu armonice si envelope."""
-        if freq is None:
-            return self._np.zeros(int(self.SR * dur))
-        t   = self._t(dur)
-        env = self._np.exp(-t * (2.0 / max(dur, 0.01)))
-        att = min(int(0.012 * self.SR), len(t))
-        env[:att] = self._np.linspace(0, 1, att)
-        wave = (self._np.sin(2 * self._np.pi * freq * t)       * 1.0 +
-                self._np.sin(2 * self._np.pi * freq * 2 * t)   * 0.35 +
-                self._np.sin(2 * self._np.pi * freq * 3 * t)   * 0.12)
-        return wave * env * vol
-
-    # ── Constructie sunete ────────────────────────────────────────────────────
     def _build(self):
         np = self._np
         SR = self.SR
@@ -607,19 +584,14 @@ class SoundManager:
         _dir = os.path.join(BUNDLE_DIR, "sounds")
 
         def _load(fname):
-            """Incarca un fisier MP3/WAV real; fallback la None daca nu exista."""
             path = os.path.join(_dir, fname)
             if os.path.exists(path):
-                try:
-                    return pg.mixer.Sound(path)
-                except Exception as e:
-                    print(f"[Audio] Nu pot incarca {fname}: {e}")
+                try: return pg.mixer.Sound(path)
+                except: pass
             return None
 
-        # 1. DING — Price is Right casino ding (fisier real)
         self.snd_ding = _load("ding.mp3")
 
-        # 2. TIMER — 10 secunde ramase (bip enervant sintetic, nu avem fisier)
         parts = []
         for i in range(10):
             hi = 1100 if i % 2 == 0 else 1500
@@ -627,84 +599,56 @@ class SoundManager:
                       self._sine(hi, 0.06, 0.55), np.zeros(int(SR * 0.06))]
         self.snd_timer = self._to_snd(self._concat(*parts))
 
-        # 3. FAIL — "FAAAAAACK" TikTok meme (fisier real)
         self.snd_fail = _load("faaack.mp3") or _load("fail.mp3")
-
-        # 4. WIN — "We Are The Champions" chorus (fisier real)
         self.snd_win = _load("champions.mp3") or _load("victory.mp3")
-
-        # 5. MUZICA FUNDAL pe durata jocului — ambient electronic (sintetic, 10s loop)
         self.snd_bg = self._to_snd(self._gen_bg(10.0))
-
-        # 6. MUZICA PRE-START — muzica de lift cu electrosocuri (fisier real)
         self.snd_prestart = _load("elevator.mp3")
-        # fallback sintetic daca fisierul lipseste
         if self.snd_prestart is None:
             self.snd_prestart = self._to_snd(self._gen_prestart(8.0))
 
-        print("[Audio] Sunete incarcate: ding, faaack, champions, elevator + bg sintetic")
-
     def _gen_bg(self, dur=10.0):
-        """Ambient electronic: bas pulsant + hum electric + arpeggio minor."""
         np = self._np; SR = self.SR
         t  = self._t(dur)
-
         bass  = np.sin(2*np.pi*55*t) * 0.28
         bass *= 0.55 + 0.45 * np.sin(2*np.pi*1.5*t)
-
-        hum = (np.sin(2*np.pi*110*t)*0.10 +
-               np.sin(2*np.pi*220*t)*0.06 +
-               np.sin(2*np.pi*330*t)*0.03)
-
+        hum = (np.sin(2*np.pi*110*t)*0.10 + np.sin(2*np.pi*220*t)*0.06 + np.sin(2*np.pi*330*t)*0.03)
         arp_fr = [110, 130.8, 164.8, 196.0, 164.8, 130.8]
         arp_rt = 3.0
         arp    = np.zeros(len(t))
         for bi in range(int(dur * arp_rt)):
-            si = int(bi / arp_rt * SR)
-            ei = min(int((bi+1) / arp_rt * SR), len(t))
+            si = int(bi / arp_rt * SR); ei = min(int((bi+1) / arp_rt * SR), len(t))
             f  = arp_fr[bi % len(arp_fr)]
             lt = t[si:ei] - t[si]
             arp[si:ei] = np.sin(2*np.pi*f*lt) * 0.13 * np.exp(-lt*7)
-
         return self._mix(bass, hum, arp)
 
     def _gen_prestart(self, dur=8.0):
-        """Muzica de lift (pentatonica) + electrosocuri la intervale fixe."""
         np = self._np; SR = self.SR
         t  = self._t(dur)
-
         elev_notes = [392, 440, 493.9, 587.3, 659.3, 587.3, 493.9, 440]
         nd   = dur / len(elev_notes)
         mel  = np.zeros(len(t))
         for i, fr in enumerate(elev_notes):
             si = int(i * nd * SR); ei = int((i+1) * nd * SR)
             lt = np.linspace(0, nd, ei-si, endpoint=False)
-            mel[si:ei] = (np.sin(2*np.pi*fr*lt)*0.28 +
-                          np.sin(2*np.pi*fr*2*lt)*0.10) * np.exp(-lt*2.5)
-
+            mel[si:ei] = (np.sin(2*np.pi*fr*lt)*0.28 + np.sin(2*np.pi*fr*2*lt)*0.10) * np.exp(-lt*2.5)
         bass = np.sin(2*np.pi*98*t)*0.18 * (0.5+0.5*np.sin(2*np.pi*0.8*t))
-
         shock_track = np.zeros(len(t))
         for st in [1.2, 3.0, 5.4, 7.1]:
             si = int(st * SR); ei = min(si + int(0.12*SR), len(t))
             raw = (np.random.random(ei-si)*2-1)
             env = np.exp(-np.linspace(0, 18, ei-si))
             shock_track[si:ei] += raw * env * 0.55
-
         return self._mix(mel, bass, shock_track)
 
-    # ── Playback ──────────────────────────────────────────────────────────────
     def _play_bg(self, snd):
         if self._ch_bg:
             self._ch_bg.stop()
             self._ch_bg.play(snd, loops=-1)
 
     def update(self, new_state, hits, timer_val):
-        """Apelat la fiecare tick din game_thread_func."""
         if not self._ok: return
         prev = self._prev_state
-
-        # Tranzitii de stare
         if new_state != prev:
             if   new_state == "PLAYING":
                 self._timer_warned = False
@@ -725,80 +669,75 @@ class SoundManager:
                 self._ch_tmr.stop()
                 self._ch_end.play(self.snd_fail)
 
-        # Tinta prinsa
-        if hits > self._prev_hits:
-            self._ch_sfx.play(self.snd_ding)
+        if hits > self._prev_hits: self._ch_sfx.play(self.snd_ding)
         self._prev_hits = hits
 
-        # Timer 10 secunde
         if new_state == "PLAYING" and 0 < timer_val <= 10.0 and not self._timer_warned:
             self._timer_warned = True
-            self._ch_bg.set_volume(0.35)  # ducem muzica in fundal
+            self._ch_bg.set_volume(0.35)
             self._ch_tmr.play(self.snd_timer)
 
         self._prev_state = new_state
 
-# Instanta globala (initializata in main)
-sound_mgr: "SoundManager | None" = None
+sound_mgr = None
 
-# ── Detectare monitoare ────────────────────────────────────────────────────────
-def detect_monitors():
+# ── LOGICA AUTOMATA PENTRU MONITOARE ──────────────────────────────────────────
+def assign_screens():
     """
-    Returneaza lista de monitoare: [{'x':..,'y':..,'w':..,'h':..}, ...]
-    Sortat dupa pozitia x (stanga la dreapta).
+    Detecteaza automat monitoarele si le atribuie:
+    m_ext (Exterior) -> Monitorul Principal (unde se porneste jocul, are bara de start).
+    m_int (Interior) -> Monitorul Secundar (TV-ul din camera).
     """
-    monitors = []
+    m_ext = None
+    m_int = None
 
-    # Metoda 1: screeninfo
     try:
         from screeninfo import get_monitors
-        for m in get_monitors():
-            monitors.append({'x': m.x, 'y': m.y, 'w': m.width, 'h': m.height})
-    except Exception:
-        pass
+        monitors = get_monitors()
+        
+        # Cautam explicit care este monitorul principal si care este cel secundar
+        for m in monitors:
+            if m.is_primary:
+                m_ext = {'x': m.x, 'y': m.y, 'w': m.width, 'h': m.height}
+            else:
+                m_int = {'x': m.x, 'y': m.y, 'w': m.width, 'h': m.height}
+        
+        # Fallback 1: Daca nu stie care e primary, il luam pe primul ca exterior
+        if not m_ext and monitors:
+            m_ext = {'x': monitors[0].x, 'y': monitors[0].y, 'w': monitors[0].width, 'h': monitors[0].height}
+            
+        # Fallback 2: Daca nu a gasit secundar dar avem mai mult de 1 ecran, il gasim pe celalalt
+        if not m_int and len(monitors) > 1:
+            for m in monitors:
+                if m.x != m_ext['x'] or m.y != m_ext['y']:
+                    m_int = {'x': m.x, 'y': m.y, 'w': m.width, 'h': m.height}
+                    break
+                    
+    except ImportError:
+        print("[Monitoare] Modulul 'screeninfo' nu e instalat. Folosesc ecran unic.")
+    except Exception as e:
+        print(f"[Monitoare] Eroare la detectie: {e}")
 
-    # Metoda 2: xrandr (fallback Linux)
-    if not monitors:
-        try:
-            import subprocess, re
-            out = subprocess.check_output(
-                ['xrandr', '--current'], stderr=subprocess.DEVNULL
-            ).decode()
-            for mm in re.finditer(r'(\d+)x(\d+)\+(\d+)\+(\d+)', out):
-                monitors.append({
-                    'x': int(mm.group(3)), 'y': int(mm.group(4)),
-                    'w': int(mm.group(1)), 'h': int(mm.group(2))
-                })
-        except Exception:
-            pass
+    # Fallback absolut daca suntem pe un singur monitor
+    if not m_ext:
+        m_ext = {'x': 0, 'y': 0, 'w': 1024, 'h': 768}
+    if not m_int:
+        m_int = m_ext  # Ambele ecrane se vor deschide unul peste altul
 
-    if not monitors:
-        monitors = [{'x': 0, 'y': 0, 'w': 1920, 'h': 1080}]
-
-    monitors.sort(key=lambda m: m['x'])   # stanga → dreapta
-    print(f"[Monitor] {len(monitors)} ecran(e): "
-          + ", ".join(f"{m['w']}x{m['h']}@({m['x']},{m['y']})" for m in monitors))
-    return monitors
-
-MONITORS = []   # populat in main inainte de crearea ferestrelor
+    return m_ext, m_int
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  ECRAN EXTERIOR — Panou de control
 # ══════════════════════════════════════════════════════════════════════════════
 class ExteriorWindow(tk.Toplevel):
-    def __init__(self, master):
+    def __init__(self, master, m_ext):
         super().__init__(master)
         self.title("⚡ TENSIUNEA — Panou Exterior")
         self.configure(bg="#0a0a0f")
         self.resizable(True, True)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # Pozitionare pe monitorul EXTERIOR (al doilea daca exista, altfel primul)
-        if len(MONITORS) >= 2:
-            m_ext = MONITORS[1]   # al doilea monitor = exterior
-        else:
-            m_ext = MONITORS[0] if MONITORS else {'x': 0, 'y': 0, 'w': 800, 'h': 600}
-
+        # Asezam fereastra exact pe monitorul atribuit pentru Exterior
         self.geometry(f"{m_ext['w']}x{m_ext['h']}+{m_ext['x']}+{m_ext['y']}")
         self.after(200, lambda: self.attributes('-fullscreen', True))
         self.bind('<Escape>', lambda e: self.attributes('-fullscreen', False))
@@ -830,20 +769,7 @@ class ExteriorWindow(tk.Toplevel):
                  font=f_title, bg=BG, fg=ACCENT).pack(pady=(22, 2))
         tk.Label(self, text="Câmpul electric al podelei — Panou Exterior",
                  font=f_sub, bg=BG, fg="#444466").pack()
-        tk.Frame(self, bg=ACCENT, height=2).pack(fill=tk.X, padx=50, pady=6)
-
-        # ── TUTORIAL SCURT ────────────────────────────────────────────────────
-        tut_frm = tk.Frame(self, bg="#0d0d1a", bd=0, relief="flat")
-        tut_frm.pack(fill=tk.X, padx=60, pady=(4, 2))
-        tk.Label(tut_frm,
-                 text="🟠 Pol+ (roşu) ⇄ Pol− (albastru): mişcați-vă pe podea formand o linie electrică — evitați izolatorii portocalii!",
-                 font=tkfont.Font(family="Arial", size=11, slant="italic"),
-                 bg="#0d0d1a", fg="#aaaacc", anchor="w").pack(fill=tk.X, padx=12, pady=(8, 2))
-        tk.Label(tut_frm,
-                 text="🟢 Conduceți linia prin toate țintele verzi în timpul limitat. Conductori: ghidați linia prin zone dificile!",
-                 font=tkfont.Font(family="Arial", size=11, slant="italic"),
-                 bg="#0d0d1a", fg="#aaaacc", anchor="w").pack(fill=tk.X, padx=12, pady=(2, 8))
-        tk.Frame(self, bg=ACCENT, height=1).pack(fill=tk.X, padx=50, pady=6)
+        tk.Frame(self, bg=ACCENT, height=2).pack(fill=tk.X, padx=50, pady=10)
 
         frm = tk.Frame(self, bg=BG)
         frm.pack(pady=10)
@@ -893,7 +819,6 @@ class ExteriorWindow(tk.Toplevel):
         legend = tk.Frame(self, bg=BG)
         legend.pack()
         
-        # LEGENDA REPARATA: Patrate colorate in loc de tupluri numerice
         items = [(C_POS, "Pol +"), (C_NEG, "Pol −"), (C_LINE, "Linie"),
                  (C_ISO, "Izolator"), (C_TGT, "Țintă"), (C_HIT, "Prins"), (C_COND, "Conductor"), (C_BORDER, "Safe Zone")]
                  
@@ -906,13 +831,11 @@ class ExteriorWindow(tk.Toplevel):
 
     def _inc(self):
         v = self._num_players.get()
-        if v < 10:
-            self._num_players.set(v + 1)
+        if v < 10: self._num_players.set(v + 1)
 
     def _dec(self):
         v = self._num_players.get()
-        if v > 2:
-            self._num_players.set(v - 1)
+        if v > 2: self._num_players.set(v - 1)
 
     def _flash(self, btn_widget, col):
         orig = btn_widget.cget("bg")
@@ -953,8 +876,7 @@ class ExteriorWindow(tk.Toplevel):
         self._flash(self.btn_quit, "#ff4455")
 
     def _tick(self):
-        if not running:
-            return
+        if not running: return
         with lock:
             s   = state
             tl  = pre_game_time_left if s == "PRE_GAME_TIMER" else time_left
@@ -965,11 +887,8 @@ class ExteriorWindow(tk.Toplevel):
             np  = num_players
 
         n = self._num_players.get()
-        if n == 2:
-            mode = "Mod clasic — 1 Pol+ și 1 Pol−, fără conductori"
-        else:
-            nr_c = n - 2
-            mode = f"2 poli + {nr_c} conductor{'i' if nr_c > 1 else ''} care ghidează linia"
+        if n == 2: mode = "Mod clasic — 1 Pol+ și 1 Pol−, fără conductori"
+        else: mode = f"2 poli + {n - 2} conductor{'i' if (n-2) > 1 else ''} care ghidează linia"
         self.lbl_mode.config(text=mode)
 
         labels = {
@@ -985,33 +904,26 @@ class ExteriorWindow(tk.Toplevel):
         self.lbl_status.config(text=f"STARE: {txt}", fg=col)
 
         mins, secs = int(tl) // 60, int(tl) % 60
-        self.lbl_live.config(
-            text=(f"Runda {rnd}/{TOTAL_ROUNDS}  |  Timp: {mins}:{secs:02d}  |  "
-                  f"Ținte: {th}/{TGT_N}  |  Scor rundă: {sc}  |  Scor total: {tsc}"))
+        self.lbl_live.config(text=(f"Runda {rnd}/{TOTAL_ROUNDS}  |  Timp: {mins}:{secs:02d}  |  Ținte: {th}/{TGT_N}  |  Scor rundă: {sc}  |  Scor total: {tsc}"))
 
         start_state = tk.NORMAL if s in ("LOBBY", "PRE_GAME_TIMER") else tk.DISABLED
         start_bg = "#007733" if s in ("LOBBY", "PRE_GAME_TIMER") else "#333333"
         self.btn_start.config(state=start_state, bg=start_bg)
-
-        self.btn_restart.config(
-            state=tk.NORMAL if s != "LOBBY" else tk.DISABLED,
-            bg="#885500" if s != "LOBBY" else "#333333")
+        self.btn_restart.config(state=tk.NORMAL if s != "LOBBY" else tk.DISABLED, bg="#885500" if s != "LOBBY" else "#333333")
 
         self.after(100, self._tick)
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  ECRAN INTERIOR — HUD cameră
 # ══════════════════════════════════════════════════════════════════════════════
 class InteriorWindow(tk.Tk):
-    def __init__(self):
+    def __init__(self, m_int):
         super().__init__()
         self.title("⚡ TENSIUNEA — HUD Interior")
         self.configure(bg="#000010")
         self.resizable(True, True)
 
-        # Pozitionare pe monitorul INTERIOR (primul monitor detectat)
-        m_int = MONITORS[0] if MONITORS else {'x': 0, 'y': 0, 'w': 1920, 'h': 1080}
+        # Asezam fereastra exact pe monitorul atribuit pentru Interior
         self.geometry(f"{m_int['w']}x{m_int['h']}+{m_int['x']}+{m_int['y']}")
         self.after(200, lambda: self.attributes('-fullscreen', True))
         self.bind('<Escape>', lambda e: self.attributes('-fullscreen', False))
@@ -1033,11 +945,9 @@ class InteriorWindow(tk.Tk):
 
         top = tk.Frame(self, bg="#080818")
         top.pack(fill=tk.X)
-        self.lbl_round = tk.Label(top, text="RUNDA 1 / 2",
-                                  font=f_round, bg="#080818", fg="#7700ff")
+        self.lbl_round = tk.Label(top, text="RUNDA 1 / 2", font=f_round, bg="#080818", fg="#7700ff")
         self.lbl_round.pack(side=tk.LEFT, padx=24, pady=8)
-        self.lbl_np = tk.Label(top, text="👥 2",
-                               font=f_round, bg="#080818", fg="#333355")
+        self.lbl_np = tk.Label(top, text="👥 2", font=f_round, bg="#080818", fg="#333355")
         self.lbl_np.pack(side=tk.RIGHT, padx=24, pady=8)
 
         main = tk.Frame(self, bg=BG)
@@ -1090,8 +1000,7 @@ class InteriorWindow(tk.Tk):
         self.lbl_end_stats.pack(side=tk.BOTTOM, pady=50)
 
     def _tick(self):
-        if not running:
-            return
+        if not running: return
         now = time.time()
         self._anim_t += now - self._last_t
         self._last_t  = now
@@ -1111,6 +1020,7 @@ class InteriorWindow(tk.Tk):
             else:
                 disp_time = time_left
                 frac = max(0.0, disp_time / TIMELIM)
+        
         if s in ("WIN", "GAMEOVER"):
             self.frm_end.place(relx=0, rely=0, relwidth=1.0, relheight=1.0)
             self.frm_end.lift()
@@ -1136,11 +1046,13 @@ class InteriorWindow(tk.Tk):
                 self.frm_end.config(bg=bg_col)
             self.after(50, self._tick)
             return
+            
         self.frm_end.place_forget()
         self.lbl_round.config(text=f"RUNDA {rnd} / {TOTAL_ROUNDS}")
         self.lbl_np.config(text=f"👥 {np}")
         mins, secs = int(disp_time) // 60, int(disp_time) % 60
         self.lbl_timer.config(text=f"{mins}:{secs:02d}")
+        
         if s == "PRE_GAME_TIMER":
             col = (0, 255, 255) 
         elif frac > 0.5:
@@ -1161,51 +1073,45 @@ class InteriorWindow(tk.Tk):
         self.lbl_score.config(text=str(sc))
         self.lbl_total.config(text=str(tsc))
         self.lbl_tgt.config(text=f"{th} / {TGT_N}")
+        
         for i, lb in enumerate(self._tiles):
             if i < th:
                 p = abs(math.sin(t * 2 + i * 0.6))
                 lb.config(fg=rgb_hex(*lerp_color((120, 255, 120), (255, 255, 255), p)))
             else:
                 lb.config(fg="#0d2e18")
+                
         if s == "PRE_GAME_TIMER":
-            msg  = "PREGĂTIȚI-VĂ!\nSTART ÎN CURÂND"
-            mcol = "#00ffff"
-            bg   = "#001122"
+            msg, mcol, bg = "PREGĂTIȚI-VĂ!\nSTART ÎN CURÂND", "#00ffff", "#001122"
         elif s == "BROKEN":
-            p    = abs(math.sin(t * 4))
+            p = abs(math.sin(t * 4))
             mcol = rgb_hex(*lerp_color((200, 0, 0), (255, 60, 60), p))
             bg   = rgb_hex(*lerp_color((18, 0, 0), (35, 4, 4), p))
             msg  = "LINIE RUPTĂ!"
         elif s == "BETWEEN_ROUNDS":
-            msg  = "Pregătire…"
-            mcol = "#4488ff"
-            bg   = "#001122"
+            msg, mcol, bg = "Pregătire…", "#4488ff", "#001122"
         elif s == "LOBBY":
-            msg  = "AȘTEPTARE…"
-            mcol = "#334466"
-            bg   = "#000010"
+            msg, mcol, bg = "AȘTEPTARE…", "#334466", "#000010"
         else:
-            msg  = ""
-            mcol = "#ffffff"
-            bg   = "#000010"
+            msg, mcol, bg = "", "#ffffff", "#000010"
+            
         self.lbl_msg.config(text=msg, fg=mcol)
         self.configure(bg=bg)
         self.after(50, self._tick)
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    # 1. Detectam monitoarele inainte de orice altceva
-    MONITORS = detect_monitors()
-
-    # 2. Initializam SoundManager
+    M_EXT, M_INT = assign_screens()
     sound_mgr = SoundManager()
-
     net = Net()
+    
     threading.Thread(target=send_loop,       args=(net,), daemon=True).start()
     threading.Thread(target=recv_floor_loop,              daemon=True).start()
     threading.Thread(target=game_thread_func,             daemon=True).start()
-    root     = InteriorWindow()
-    exterior = ExteriorWindow(root)
+    
+    root     = InteriorWindow(M_INT)
+    exterior = ExteriorWindow(root, M_EXT)
+    
     print("\u26a1 TENSIUNEA pornit.")
     root.mainloop()
     running = False

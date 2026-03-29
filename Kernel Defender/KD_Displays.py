@@ -34,6 +34,52 @@ def ff(size, bold=False):
     return ("Consolas", size, "bold" if bold else "normal")
 
 
+# ── LOGICA AUTOMATA PENTRU MONITOARE ──────────────────────────────────────────
+def assign_screens():
+    """
+    Detecteaza automat monitoarele si le atribuie:
+    m_ext (Exterior) -> Monitorul Principal (pentru Game Master)
+    m_int (Interior) -> Monitorul Secundar (TV-ul din camera)
+    """
+    m_ext = None
+    m_int = None
+    
+    try:
+        from screeninfo import get_monitors
+        monitors = get_monitors()
+        
+        # Cautam explicit monitorul principal si pe cel secundar
+        for m in monitors:
+            if m.is_primary:
+                m_ext = {'x': m.x, 'y': m.y, 'w': m.width, 'h': m.height}
+            else:
+                m_int = {'x': m.x, 'y': m.y, 'w': m.width, 'h': m.height}
+        
+        # Daca nu stie care e principal, il luam pe primul gasit pentru Exterior
+        if not m_ext and monitors:
+            m_ext = {'x': monitors[0].x, 'y': monitors[0].y, 'w': monitors[0].width, 'h': monitors[0].height}
+            
+        # Daca nu a gasit secundar dar exista mai multe ecrane conectate, il selectam pe celalalt
+        if not m_int and len(monitors) > 1:
+            for m in monitors:
+                if m.x != m_ext['x'] or m.y != m_ext['y']:
+                    m_int = {'x': m.x, 'y': m.y, 'w': m.width, 'h': m.height}
+                    break
+                    
+    except ImportError:
+        print("[Monitoare] Modulul 'screeninfo' nu e instalat. Folosesc ecran unic.")
+    except Exception as e:
+        print(f"[Monitoare] Eroare la detectie: {e}")
+
+    # Fallback (rezerva) absolut daca suntem pe un singur monitor (ex: in simulare)
+    if not m_ext:
+        m_ext = {'x': 0, 'y': 0, 'w': 1024, 'h': 768}
+    if not m_int:
+        m_int = m_ext  # Ambele ecrane se vor deschide unul peste altul
+
+    return m_ext, m_int
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Telemetry receiver (shared)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -142,21 +188,25 @@ def stat_card(parent, label_text, label_color=GRAY):
 # ─────────────────────────────────────────────────────────────────────────────
 class LobbyWindow(tk.Toplevel):
 
-    def __init__(self, root, tel: TelemetryReceiver, cmd: CommandSender):
+    def __init__(self, root, tel: TelemetryReceiver, cmd: CommandSender, m_ext):
         super().__init__(root)
         self.tel, self.cmd = tel, cmd
         self._root = root
         self.title("KERNEL DEFENDER – LOBBY")
         self.configure(bg=BG)
-        self.geometry("+0+0")
-        self.attributes("-fullscreen", True)
+        
+        # Asezam fereastra pe monitorul exterior si ii dam fullscreen
+        self.geometry(f"{m_ext['w']}x{m_ext['h']}+{m_ext['x']}+{m_ext['y']}")
+        self.after(200, lambda: self.attributes("-fullscreen", True))
         self.bind("<Escape>", lambda e: self.attributes("-fullscreen", False))
+        
         self.resizable(True, True)
         self.protocol("WM_DELETE_WINDOW", self._quit_app)
         self._pc    = tk.IntVar(value=4)
         self._pulse = 0
         self._frames = {}
         self._build_all()
+        
         # Floating quit button — always on top, top-right corner
         self._quit_btn = tk.Button(
             self, text="✕  QUIT", command=self._quit_app,
@@ -384,21 +434,24 @@ class LobbyWindow(tk.Toplevel):
 # ─────────────────────────────────────────────────────────────────────────────
 class HUDWindow(tk.Toplevel):
 
-    def __init__(self, root, tel: TelemetryReceiver, cmd: CommandSender):
+    def __init__(self, root, tel: TelemetryReceiver, cmd: CommandSender, m_int):
         super().__init__(root)
         self.tel, self.cmd = tel, cmd
         self._root = root
         self.title("KERNEL DEFENDER – HUD")
         self.configure(bg=BG)
-        sw = root.winfo_screenwidth()
-        self.geometry(f"+{sw}+0")
-        self.attributes("-fullscreen", True)
+        
+        # Asezam fereastra pe monitorul interior (TV) si ii dam fullscreen
+        self.geometry(f"{m_int['w']}x{m_int['h']}+{m_int['x']}+{m_int['y']}")
+        self.after(200, lambda: self.attributes("-fullscreen", True))
         self.bind("<Escape>", lambda e: self.attributes("-fullscreen", False))
+        
         self.resizable(True, True)
         self.protocol("WM_DELETE_WINDOW", self._quit_app)
         self._blink  = False
         self._frames = {}
         self._build_all()
+        
         # Floating quit button — always visible, top-right
         self._quit_btn = tk.Button(
             self, text="✕  QUIT", command=self._quit_app,
@@ -667,13 +720,19 @@ class HUDWindow(tk.Toplevel):
 # Main
 # ─────────────────────────────────────────────────────────────────────────────
 def main():
+    
+    # 1. Atribuim inteligent monitoarele
+    M_EXT, M_INT = assign_screens()
+    
     root = tk.Tk()
     root.withdraw()
 
     tel   = TelemetryReceiver()
     cmd   = CommandSender()
-    lobby = LobbyWindow(root, tel, cmd)
-    hud   = HUDWindow(root, tel, cmd)
+    
+    # 2. Transmitem monitoarele corecte fiecarei ferestre
+    lobby = LobbyWindow(root, tel, cmd, M_EXT)
+    hud   = HUDWindow(root, tel, cmd, M_INT)
 
     # The user can click the QUIT buttons on the UI to exit cleanly!
 

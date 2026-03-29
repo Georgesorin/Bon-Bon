@@ -1,4 +1,5 @@
 psutil
 pygame
 numpy
+screeninfo
 # tk (standard library on Windows, but typically needs a separate package on Mac/Linux)

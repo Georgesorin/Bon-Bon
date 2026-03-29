@@ -1,5 +1,5 @@
 """
-Color Capture – Territory capture game for the 16x32 LED matrix (antigravity)
+Color Capture – Territory capture game for the 16x32 LED matrix
 =============================================================================
 
 Rules:
@@ -34,6 +34,7 @@ import math
 import os
 import json
 import sys
+import tkinter as tk
 import tkinter.font as tkfont
 
 # Force UTF-8 output so Windows PowerShell doesn't show '?' for Unicode chars
@@ -111,8 +112,8 @@ PLAYER_COLORS = [
     ( 80, 200, 255),   # 9 – Aqua
 ]
 
-# Dim version used for territory cells (50 % brightness)
 def dim(color, factor=0.45):
+    """Dim version used for territory cells (50 % brightness)"""
     return (int(color[0]*factor), int(color[1]*factor), int(color[2]*factor))
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -125,14 +126,10 @@ PRE_GAME_DURATION  = 10.0   # seconds for placing players
 TOTAL_ROUNDS       = 2
 
 # Spawn points = the 4 corners of the board, ordered for maximum separation.
-# Player 0 always starts top-left, player 1 bottom-right (diagonal), etc.
-#   2 players: corners 0+1  (diagonal)
-#   3 players: corners 0+1+2
-#   4 players: all 4 corners
 CORNERS = [
-    ( 0,              0),              # 0 top-left
+    ( 0,              0),                 # 0 top-left
     (BOARD_WIDTH - 1, BOARD_HEIGHT - 1),  # 1 bottom-right
-    (BOARD_WIDTH - 1, 0),              # 2 top-right
+    (BOARD_WIDTH - 1, 0),                 # 2 top-right
     ( 0,              BOARD_HEIGHT - 1),  # 3 bottom-left
 ]
 
@@ -185,7 +182,6 @@ def decode_sensors(data: bytes) -> set:
 # Small 3×5 font – digits 0-9 + limited characters (for score display)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Each glyph is a list of (col, row) pixel offsets (col 0-2, row 0-4)
 _FONT3x5 = {
     '0': [(0,0),(1,0),(2,0),(0,1),(2,1),(0,2),(2,2),(0,3),(2,3),(0,4),(1,4),(2,4)],
     '1': [(1,0),(1,1),(1,2),(1,3),(1,4)],
@@ -211,6 +207,50 @@ def draw_text(buffer: bytearray, text: str, ox: int, oy: int, color: tuple):
         for (dc, dr) in glyph:
             set_led(buffer, cx + dc, oy + dr, color)
         cx += 4   # 3 px wide + 1 px gap
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LOGICA AUTOMATA PENTRU MONITOARE
+# ─────────────────────────────────────────────────────────────────────────────
+
+def assign_screens():
+    """
+    Detecteaza automat monitoarele si le atribuie:
+    m_ext (Exterior) -> Monitorul Principal (Launcher / Panou de Control)
+    m_int (Interior) -> Monitorul Secundar (Scoreboard / Timer)
+    """
+    m_ext = None
+    m_int = None
+    try:
+        from screeninfo import get_monitors
+        monitors = get_monitors()
+        
+        for m in monitors:
+            if m.is_primary:
+                m_ext = {'x': m.x, 'y': m.y, 'w': m.width, 'h': m.height}
+            else:
+                m_int = {'x': m.x, 'y': m.y, 'w': m.width, 'h': m.height}
+        
+        # Fallbacks
+        if not m_ext and monitors:
+            m_ext = {'x': monitors[0].x, 'y': monitors[0].y, 'w': monitors[0].width, 'h': monitors[0].height}
+        if not m_int and len(monitors) > 1:
+            for m in monitors:
+                if m.x != m_ext['x'] or m.y != m_ext['y']:
+                    m_int = {'x': m.x, 'y': m.y, 'w': m.width, 'h': m.height}
+                    break
+    except ImportError:
+        print("[Monitoare] Modulul 'screeninfo' nu e instalat. Folosesc ecran unic.")
+    except Exception as e:
+        print(f"[Monitoare] Eroare la detectie: {e}")
+
+    # Fallback absolut daca suntem pe un singur monitor
+    if not m_ext:
+        m_ext = {'x': 0, 'y': 0, 'w': 1024, 'h': 768}
+    if not m_int:
+        m_int = m_ext 
+
+    return m_ext, m_int
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1057,16 +1097,15 @@ def game_thread_func(game: ColorCaptureGame):
 # Launcher GUI
 # ─────────────────────────────────────────────────────────────────────────────
 
-def show_launcher(game: ColorCaptureGame) -> None:
+def show_launcher(game: ColorCaptureGame, m_ext, m_int) -> None:
     """
     Show a pre-game tkinter window where the user picks 2, 3 or 4 players
     and clicks START.  When the window closes the game is already started.
-    Falls back to a simple console prompt if tkinter is unavailable.
     """
     try:
         import tkinter as tk
     except ImportError:
-        # Headless fallback
+        print("[GUI] Tkinter lipsa. Rulam din consola.")
         while True:
             try:
                 raw = input(f"Players ({MIN_PLAYERS}-{MAX_PLAYERS}): ").strip()
@@ -1102,12 +1141,13 @@ def show_launcher(game: ColorCaptureGame) -> None:
     SEP     = "#1e2e5a"
     root.configure(bg=BG)
 
-    W0, H0 = 440, 600
-    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    root.geometry(f"{W0}x{H0}+{(sw - W0)//2}+{(sh - H0)//2}")
+    # Asezam fereastra pe monitorul exterior (Launcher -> Control Panel)
+    root.geometry(f"{m_ext['w']}x{m_ext['h']}+{m_ext['x']}+{m_ext['y']}")
+    root.after(200, lambda: root.attributes('-fullscreen', True))
+    root.bind('<Escape>', lambda e: root.attributes('-fullscreen', False))
 
     # ── dynamic font scaling ──────────────────────────────────────────────────
-    _BASE_H = 600.0
+    _BASE_H = float(m_ext['h'])
     _font_cache = {}   # (base_size, bold) -> tk.font.Font
 
     def F(base_size, bold=False):
@@ -1276,14 +1316,10 @@ def show_launcher(game: ColorCaptureGame) -> None:
     def _show_game_panel(n_players: int):
         """Transform root into control panel + open separate scoreboard Toplevel."""
 
-        # ── 1. Transform root into the Control Panel ─────────────────────────
+        # ── 1. Transform root into the Control Panel (on exterior monitor) ───
         for w in root.winfo_children():
             w.destroy()
 
-        PW, PH = 320, 260
-        sw2 = root.winfo_screenwidth()
-        sh2 = root.winfo_screenheight()
-        root.geometry(f"{PW}x{PH}+{(sw2 - PW)//2 - 220}+{(sh2 - PH)//2}")
         root.title("Color Capture - Control")
         BG   = "#08081a"
         SEP2 = "#1e2e5a"
@@ -1344,19 +1380,18 @@ def show_launcher(game: ColorCaptureGame) -> None:
 
         root.protocol("WM_DELETE_WINDOW", do_exit)
 
-        # ── 2. Open the SCOREBOARD in a separate Toplevel ─────────────────────
-        SBW = 420
-        SBH = 180 + n_players * 52
-        sb_x = (sw2 - PW) // 2 - 220 + PW + 20
-        sb_y = (sh2 - SBH) // 2
+        # ── 2. Open the SCOREBOARD on the Interior monitor ─────────────────────
         sb = tk.Toplevel(root)
         sb.title("Color Capture - Scoreboard")
         sb.configure(bg=BG)
-        sb.geometry(f"{SBW}x{SBH}+{sb_x}+{sb_y}")
+        
+        sb.geometry(f"{m_int['w']}x{m_int['h']}+{m_int['x']}+{m_int['y']}")
+        sb.after(200, lambda: sb.attributes('-fullscreen', True))
+        sb.bind('<Escape>', lambda e: sb.attributes('-fullscreen', False))
         sb.protocol("WM_DELETE_WINDOW", do_exit)
 
         # Font scaling for scoreboard window too
-        _SB_BASE_H = float(SBH)
+        _SB_BASE_H = float(m_int['h'])
         def _sb_resize(event):
             if event.widget is not sb:
                 return
@@ -1559,7 +1594,10 @@ if __name__ == "__main__":
     print("=" * 60)
     print("  Launcher window opening...")
 
-    # Create game (starts in LOBBY - shows animated idle on matrix while waiting)
+    # 1. Atribuim inteligent ecranele
+    M_EXT, M_INT = assign_screens()
+
+    # 2. Create game (starts in LOBBY - shows animated idle on matrix while waiting)
     game = ColorCaptureGame(num_players=MIN_PLAYERS)
     net  = NetworkManager(game)
     net.start()
@@ -1567,50 +1605,10 @@ if __name__ == "__main__":
     gt = threading.Thread(target=game_thread_func, args=(game,), daemon=True)
     gt.start()
 
-    # Show the launcher GUI - blocks until user clicks START (or closes window)
-    show_launcher(game)
+    # 3. Transmitem coordonatele ecranelor catre GUI (Launcher -> Control Panel pe m_ext, Scoreboard pe m_int)
+    show_launcher(game, M_EXT, M_INT)
 
     if not game.running:
         net.stop()
         print("[ColorCapture] Exited (window closed).")
         sys.exit(0)
-
-    print(f"[ColorCapture] Game launched with {game._num_players} players.")
-    print("Commands: restart | info | quit")
-
-    # Minimal console loop (no 'start' needed - use launcher for that)
-    try:
-        while game.running:
-            try:
-                cmd = input("> ").strip().lower()
-            except EOFError:
-                break
-
-            if cmd in ("quit", "exit", "q"):
-                game.running = False
-                break
-
-            elif cmd == "restart":
-                game.restart()
-                print("Game restarted.")
-
-            elif cmd == "info":
-                with game.lock:
-                    st  = game.state
-                    rnd = game.current_round
-                    print(f"State: {st}  Round: {rnd}/{TOTAL_ROUNDS}")
-                    for p in sorted(game.players,
-                                    key=lambda p: p.total_score, reverse=True):
-                        cells = sum(1 for v in game.board.values() if v == p.id)
-                        print(f"  P{p.id+1} ({_color_name(p.color)}): "
-                              f"{cells} cells | total {p.total_score}")
-
-            else:
-                print("Commands: restart | info | quit")
-
-    except KeyboardInterrupt:
-        print("\n[ColorCapture] Interrupted.")
-    finally:
-        game.running = False
-        net.stop()
-        print("[ColorCapture] Exited.")
