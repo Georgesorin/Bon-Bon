@@ -512,9 +512,14 @@ class EclipseGame:
             print("  [SIM] Released all")
 
     def _btn(self, ch, led):
-        """Check button state (real hardware OR sim override)."""
+        """Check button state (real hardware OR sim override) with mirror support."""
+        # Hardware uses mirrored channels (1&3, 2&4). 
+        # So we check both walls on the same logic line.
+        mirror_ch = 3 if ch == 1 else (1 if ch == 3 else (4 if ch == 2 else 2))
         return (self._sim_overrides.get((ch, led), False) or
-                self.button_states.get((ch, led), False))
+                self.button_states.get((ch, led), False) or
+                self._sim_overrides.get((mirror_ch, led), False) or
+                self.button_states.get((mirror_ch, led), False))
 
     # ── Commands ──────────────────────────────────────────────────────────────
     def cmd_start(self, player_count: int):
@@ -526,15 +531,16 @@ class EclipseGame:
             self.current_round = 0
             self.score         = 0
 
-            # Randomise eye order strictly using physical Channels 1 & 2
-            self.eye_order = [1, 2, 1, 2, 1, 2][:self.total_rounds]
-            random.shuffle(self.eye_order)
+            # Restauram logica pe toti cei 4 pereti la fel ca in Asediul
+            self.eye_order = []
+            for _ in range(self.total_rounds):
+                self.eye_order.append(random.choice([1, 2, 3, 4]))
 
             self.state = "PLAYING"
             self._start_round()
             audio.play_music()
-            print(f"[ECLIPSE] Game started! {self.player_count} players, "
-                  f"order: {self.eye_order}")
+            print(f"[ECLIPSE] Joc Inceput! {self.player_count} jucatori, "
+                  f"ordine: {self.eye_order}")
 
     def cmd_restart(self):
         with self.lock:
@@ -558,8 +564,11 @@ class EclipseGame:
 
         self.current_eye_wall = self.eye_order[self.current_round]
 
-        # The distraction wall is the OTHER mirrored channel (3 - 1 = 2; 3 - 2 = 1)
-        self.distraction_wall = 3 - self.current_eye_wall
+        # REPARATIE BUG MIRRORING: Momeala TREBUIE sa fie pe axa perpendiculara!
+        if self.current_eye_wall in (1, 3):
+            self.distraction_wall = random.choice([2, 4])
+        else:
+            self.distraction_wall = random.choice([1, 3])
 
         # Pick ONE ONLY random distraction button
         self.distraction_btns = [random.randint(1, 10)]
@@ -822,6 +831,16 @@ class EclipseGame:
                     for led in range(1, 11):
                         leds[(ch, led)] = _scale(RED, b)
 
+        # DUMPLICAM FIZIC IN SOFTWARE PENTRU SIMULATOR
+        for ch in range(1, 3):
+            mirror = ch + 2
+            for led in range(LEDS_PER_CHANNEL):
+                # Mix them based on whoever is not black
+                if leds[(ch, led)] == BLACK and leds[(mirror, led)] != BLACK:
+                    leds[(ch, led)] = leds[(mirror, led)]
+                elif leds[(mirror, led)] == BLACK and leds[(ch, led)] != BLACK:
+                    leds[(mirror, led)] = leds[(ch, led)]
+
         self._led_states = leds
 
     def get_led_states(self):
@@ -940,43 +959,88 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"[ECLIPSE] ⚠ Could not launch displays: {e}")
 
+    # ===== INTEGRĂM INFRASTRUCTURA EXACT CA LA ASEDIUL OCHILOR =====
+    try:
+        from EvilEye.Controller import LightService
+    except ImportError:
+        print("[FATAL] Nu pot importa EvilEye.Controller. Asigură-te că există!")
+        sys.exit(1)
+
+    if_local = ("127.0.0.1" if DEBUG_MODE else "0.0.0.0")
     if DEBUG_MODE:
         device_ip = "127.0.0.1"
-        print(f"[HARDWARE] DEBUG MODE: Using local simulator at {device_ip} on ports {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
+        print(f"[HARDWARE] DEBUG MODE: Using local simulator at {device_ip}")
     else:
-        # Preluam IP-ul real prin zero-click auto-discovery!
         discovered_ip = None
         if auto_discover_evileye:
             discovered_ip = auto_discover_evileye(timeout=1.0)
             
         if discovered_ip:
             device_ip = discovered_ip
-            UDP_DEVICE_PORT = 4626
-            UDP_BUTTON_PORT = 7800
             print(f"> [AUTO] Spirtism atașat la Hardware Real: {device_ip} pe 4626/7800")
         else:
             device_ip = "169.254.182.11"
-            UDP_DEVICE_PORT = 4626
-            UDP_BUTTON_PORT = 7800
-            print(f"[HARDWARE] Folosim IP dictat de mentor: {device_ip} pe {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
+            print(f"[HARDWARE] Folosim IP dictat de mentor: {device_ip} pe 4626/7800")
 
-    # Create game & services
+    # Inițiem doveditul LightService creat de colegi
+    light = LightService()
+    light.set_device(device_ip, 4626)
+    light.set_recv_port(7800)
+    light.set_bind_ip(if_local)
+
+    # Dăm start la pollere și ascultătoare
+    light.start_polling()
+    light.start_receiver()
+
+    # Creăm mecanismul logic The Eclipse
     game = EclipseGame()
-    net  = NetworkService(device_ip, game)
+
+    # Routing the same reliable events from LightService
+    def on_btn(ch, led, is_triggered, is_disconnected):
+        # Aplicam corectia Circulara + Liniara EXACT CA LA ASEDIUL OCHILOR
+        offset = 1  # Hardware button offset
+        if offset != 0 and led > 0:
+            g_idx = (ch - 1) * 10 + (led - 1)
+            g_idx = (g_idx - offset) % 40
+            ch = (g_idx // 10) + 1
+            led = (g_idx % 10) + 1
+            
+        with game.lock:
+            game.button_states[(ch, led)] = is_triggered
+            
+    light.on_button_state = on_btn
+
+    # Creăm the push bridge (The Eclipse game loop -> LightService frames)
+    def eclipse_bridge():
+        while game.running:
+            # 1. Update Game State
+            game.tick()
+            
+            # 2. Extract active colors
+            frame_leds = game.get_led_states()
+            
+            # 3. Trimitem 1:1 catre instanța LightService a colegilor
+            with light._lock:
+                # Clear existing to enforce black frames on inactive
+                light._led_states.clear()
+                for (c, l), color in frame_leds.items():
+                    if color != (0, 0, 0): # Optimization
+                        light._led_states[(c, l)] = color
+            
+            time.sleep(0.02)  # 50 Hz tick (20ms)
+
+    # Lansăm telemetria pentru frontend
     tel  = TelemetryBroadcaster(game)
     cmd  = CommandReceiver(game)
-    net.start()
 
-    # Game thread
-    gt = threading.Thread(target=game_thread_func, args=(game,), daemon=True)
+    # Pornim Bridge Loop-ul
+    gt = threading.Thread(target=eclipse_bridge, daemon=True)
     gt.start()
 
     print("=" * 55)
-    print("   THE ECLIPSE — Evil Eye Stealth Exorcism")
-    print(f"   Device  → {device_ip}:{UDP_DEVICE_PORT}")
-    print(f"   Buttons ← 0.0.0.0:{UDP_BUTTON_PORT}")
-    print(f"   Telemetry → localhost:{UDP_TELEMETRY_PORT}")
-    print(f"   Commands  ← 0.0.0.0:{UDP_CMD_PORT}")
+    print("   THE ECLIPSE — Evil Eye Stealth Exorcism (PATCHED SYS)")
+    print(f"   Device  → {device_ip}:4626")
+    print(f"   Buttons ← 0.0.0.0:7800")
     print("=" * 55)
     print("State: LOBBY — use Displays to start or type: start <N>")
     if DEBUG_MODE:
@@ -1113,7 +1177,8 @@ if __name__ == "__main__":
         pass
 
     game.running = False
-    net.stop()
+    light.stop_polling()
+    light.stop_receiver()
     if displays_proc:
         displays_proc.terminate()
     print("[ECLIPSE] Exited.")
