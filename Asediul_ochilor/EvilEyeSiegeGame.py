@@ -131,9 +131,14 @@ class EvilEyeSiegeGame:
 
     def handle_button_event(self, ch, led, is_pressed, is_disconnected=False):
         """Funcția care interceptează pachetele UDP hardware"""
-        # Corectare decalaj cablare hardware (Buton 1 fizic trimite 0, noi vrem 1)
-        led = led + self.config.get('button_offset', 1)
-        
+        # Corectare decalaj liniar si circular (rezolva problema cand butonul sarea la 11 sau la peretele gresit)
+        offset = self.config.get('button_offset', 0)
+        if offset != 0 and led > 0:
+            g_idx = (ch - 1) * 10 + (led - 1)
+            g_idx = (g_idx + offset) % 40
+            ch = (g_idx // 10) + 1
+            led = (g_idx % 10) + 1
+            
         if led <= 0:
             return 
             
@@ -459,17 +464,14 @@ if __name__ == "__main__":
     
     def start_with_players(num_players):
         game.set_config('num_players', num_players)
-        game.set_config('button_offset', 1 if hw_offset_var.get() else 0)
-        print(f"\n[MENIU] Au fost selectați {num_players} jucători. Offset butoane: {game.config.get('button_offset')}. START JOC!")
+        game.set_config('button_offset', 1)  # Activ permanent +1 pentru hardware
+        print(f"\n[MENIU] Au fost selectați {num_players} jucători. START JOC!")
         game_started[0] = True
         root.destroy()
         
     # UI Elements
     tk.Label(root, text="ASEDIUL CELOR 4 OCHI DEMONICI", fg="#ff3333", bg="#111", font=("Consolas", 26, "bold")).pack(pady=(30, 10))
     tk.Label(root, text="Selectează câți jucători participă:", fg="white", bg="#111", font=("Consolas", 14)).pack(pady=5)
-    
-    hw_offset_var = tk.BooleanVar(value=True)
-    tk.Checkbutton(root, text="Mod Cameră Fizică (Repară decalajul firelor, Butoane +1)", variable=hw_offset_var, bg="#111", fg="#00ccff", selectcolor="#222", activebackground="#111", activeforeground="#fff", font=("Consolas", 11)).pack(pady=5)
     
     btn_frame = tk.Frame(root, bg="#111")
     btn_frame.pack(pady=20)
