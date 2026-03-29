@@ -265,8 +265,13 @@ class EvilEyeSiegeGame:
 
     def _start_phase_3(self):
         self.state = GameState.PHASE_3
-        # Carry-over la timpul curent !
         
+        # Jucătorii sunt penalizați cu -15 secunde la trecerea spre Etapa 3
+        self.phase_timer -= 15.0
+        if self.phase_timer <= 0:
+            self._trigger_game_over(reason="Timpul nu a fost suficient pentru a supraviețui penalizării de -15s spre Faza 3!")
+            return
+            
         self.current_blues_caught = 0
         if self.light: self.light.all_off()
         self.active_blues.clear()
@@ -294,9 +299,15 @@ class EvilEyeSiegeGame:
 
     def _start_phase_2_repeat(self):
         self.state = GameState.PHASE_2_REPEAT
+        
+        # Se scad aceleași 15 secunde conform regulei
+        self.phase_timer -= 15.0
+        if self.phase_timer <= 0:
+            self._trigger_game_over(reason="Timpul nu a fost suficient pentru a supraviețui penalizării de -15s spre ultima fază!")
+            return
+            
         self.current_blues_caught = 0
         if self.light: self.light.all_off()
-        self.active_blues.clear()
         
         wall = random.choice([1, 2, 3, 4])
         self.red_eyes = [wall]
@@ -343,7 +354,7 @@ class EvilEyeSiegeGame:
         score = int(self.phase_timer)
         print(f"\n*********************************************")
         print(f"                  VICTORIE!                  ")
-        print(f" Scorul Tău: {score} puncte/secunde finale    ")
+        print(f" Timp rămas adunat din Etapele 2 și 3: {score} secunde")
         print(f"*********************************************")
 
 
@@ -399,26 +410,141 @@ if __name__ == "__main__":
     # 3. Creăm o instanță a Game Engine-ului nostru
     game = EvilEyeSiegeGame(light_service=service)
 
-    # 4. Routing intercepție apasari catre logica jocului
+    # Routing intercepție apasari catre logica jocului
     def on_btn(ch, led, is_triggered, is_disconnected):
         game.handle_button_event(ch, led, is_pressed=is_triggered)
     service.on_button_state = on_btn
     
-    # 5. BĂTĂLIA POATE SA INCEAPA
-    game.start_game()
+    # -------------------------------------------------------------
+    # MENIU DE START GUI (Selectare Jucători)
+    # -------------------------------------------------------------
+    import tkinter as tk
     
-    try:
-        while True:
-            time.sleep(1)
-            # Dacă intrăm în Game Over/Victorie așteptăm 10s să ne mândrim de culoare, pe urmă exit.
-            if game.state in (GameState.GAME_OVER, GameState.VICTORY):
-                print("\n[Game Engine]: Oprire în 8 secunde...")
-                time.sleep(8)
-                break
-    except KeyboardInterrupt:
-        print("\n[!] Închidere solicitată de utilizator manual.")
-    finally:
-        game.stop_game()
+    root = tk.Tk()
+    root.title("Meniu Asediul Ochilor")
+    root.geometry("900x550")
+    root.configure(bg="#111111")
+    root.eval('tk::PlaceWindow . center') # Aducere in centrul ecranului
+    
+    # Variabilă de control să vedem dacă am apăsat un buton sau am închis fereastra cu X
+    game_started = [False]
+    
+    def start_with_players(num_players):
+        game.set_config('num_players', num_players)
+        print(f"\n[MENIU] Au fost selectați {num_players} jucători. START JOC!")
+        game_started[0] = True
+        root.destroy()
+        
+    # UI Elements
+    tk.Label(root, text="ASEDIUL CELOR 4 OCHI DEMONICI", fg="#ff3333", bg="#111", font=("Consolas", 26, "bold")).pack(pady=(30, 10))
+    tk.Label(root, text="Selectează câți jucători participă:", fg="white", bg="#111", font=("Consolas", 14)).pack(pady=5)
+    
+    btn_frame = tk.Frame(root, bg="#111")
+    btn_frame.pack(pady=20)
+    
+    # Buton 2 Jucători
+    b2 = tk.Button(btn_frame, 
+              text="2 PLAYERI", 
+              command=lambda: start_with_players(2), 
+              bg="#222", fg="#00ff88", font=("Consolas", 18, "bold"), 
+              relief="flat", activebackground="#333", activeforeground="#00ff88",
+              width=20, height=2, cursor="hand2")
+    b2.pack(side=tk.LEFT, padx=15)
+    
+    # Buton 3 Jucători
+    b3 = tk.Button(btn_frame, 
+              text="3 PLAYERI", 
+              command=lambda: start_with_players(3), 
+              bg="#222", fg="#ff4444", font=("Consolas", 18, "bold"), 
+              relief="flat", activebackground="#333", activeforeground="#ff4444",
+              width=20, height=2, cursor="hand2")
+    b3.pack(side=tk.LEFT, padx=15)
+
+    info_frame = tk.Frame(root, bg="#111")
+    info_frame.pack(pady=30)
+    
+    tk.Label(info_frame, text="Etapa 1: Aduna timpii de culoare albastra pentru viitor.", fg="#aaa", bg="#111", font=("Consolas", 14, "italic")).pack(anchor="w", pady=4)
+    tk.Label(info_frame, text="Etapa 2: Tine ochiul pe loc in timp ce il lovesti din parti.", fg="#aaa", bg="#111", font=("Consolas", 14, "italic")).pack(anchor="w", pady=4)
+    tk.Label(info_frame, text="Etapa 3: Adevaratul challange.", fg="#aaa", bg="#111", font=("Consolas", 14, "italic")).pack(anchor="w", pady=4)
+
+    # Așteaptă inputul jucătorului
+    root.mainloop()
+    
+    # -------------------------------------------------------------
+    # BĂTĂLIA POATE SA INCEAPA (Doar dacă nu s-a dat X pe fereastră)
+    # -------------------------------------------------------------
+    if game_started[0]:
+        game.start_game()
+        
+        # -------------------------------------------------------------
+        # DASHBOARD LIVE ÎN TIMPUL JOCULUI
+        # -------------------------------------------------------------
+        dash = tk.Tk()
+        dash.title("Live Dashboard - Asediul Ochilor")
+        dash.geometry("500x320")
+        dash.configure(bg="#0a0a0a")
+        # dash.attributes('-topmost', True) # Îl ține deasupra, opțional
+        
+        lbl_stadiu = tk.Label(dash, text="SE ÎNCARCĂ...", font=("Consolas", 20, "bold"), bg="#0a0a0a", fg="#00ccff")
+        lbl_stadiu.pack(pady=(30, 5))
+        
+        lbl_timp = tk.Label(dash, text="--", font=("Consolas", 40, "bold"), bg="#0a0a0a", fg="#ffffff")
+        lbl_timp.pack(pady=10)
+        
+        lbl_bank = tk.Label(dash, text="", font=("Consolas", 14), bg="#0a0a0a", fg="#ffcc00")
+        lbl_bank.pack(pady=10)
+        
+        # Funcție de actualizare a interfeței apelată automat o dată la 100 milisecunde
+        def update_dash():
+            # Condiții de final
+            if game.state == GameState.GAME_OVER:
+                lbl_stadiu.config(text="GAME OVER", fg="#ff0000")
+                lbl_timp.config(text="Ai pierdut!", fg="#ff0000")
+                lbl_bank.config(text="")
+                dash.after(8000, dash.destroy)
+                return
+            elif game.state == GameState.VICTORY:
+                lbl_stadiu.config(text="VICTORIE TOTALĂ!", fg="#00ff00")
+                lbl_timp.config(text=f"{int(game.phase_timer)} sec", fg="#00ff00")
+                lbl_bank.config(text="Timp rămas adunat din Etapele 2 și 3!")
+                dash.after(10000, dash.destroy)
+                return
+                
+            # Logica formatării continue
+            t_rem = int(game.phase_timer)
+            if t_rem < 0: t_rem = 0
+            
+            if game.state == GameState.PHASE_1:
+                lbl_stadiu.config(text="ETAPA 1: ADUNĂ TIMP", fg="#00ccff")
+                lbl_timp.config(text=f"{t_rem}s", fg="#fff")
+                lbl_bank.config(text=f"Timp Acumulat (Bonus): {int(game.time_bank)} secunde")
+                
+            elif game.state == GameState.PHASE_2:
+                lbl_stadiu.config(text="ETAPA 2: PRIMUL OCHI", fg="#ffcc00")
+                lbl_timp.config(text=f"{t_rem}s", fg="#fff")
+                lbl_bank.config(text=f"Ai acumulat: {int(game.time_bank)}s din etapa 1\nProgres Daune: {game.current_blues_caught} / {game.config['phase2_target']}")
+                
+            elif game.state in (GameState.PHASE_3, GameState.PHASE_2_REPEAT):
+                lbl_stadiu.config(text="ETAPA 3: ADEVARATUL CHALLANGE", fg="#ff3333")
+                lbl_timp.config(text=f"{t_rem}s", fg="#fff")
+                lbl_bank.config(text=f"Progres Boss: {game.current_blues_caught} / {game.config['phase3_target']}")
+                
+            dash.after(100, update_dash)
+            
+        update_dash()
+        
+        try:
+            # Rulăm bucla grafică în loc de time.sleep() invizibil
+            dash.mainloop()
+        except KeyboardInterrupt:
+            print("\n[!] Închidere solicitată de utilizator manual.")
+        finally:
+            game.stop_game()
+            service.stop_polling()
+            service.stop_receiver()
+            print("Instanță curățată din memorie.")
+    else:
+        # A dat X din dreapta sus
         service.stop_polling()
         service.stop_receiver()
-        print("Instanță curățată din memorie.")
+        print("Ieșire din meniu fără lansarea jocului.")
