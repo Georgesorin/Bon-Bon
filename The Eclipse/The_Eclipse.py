@@ -180,8 +180,8 @@ def build_frame_data(led_states: dict) -> bytes:
     for (ch, led), (r, g, b) in led_states.items():
         idx = ch - 1
         if 0 <= idx < NUM_CHANNELS and 0 <= led < LEDS_PER_CHANNEL:
-            frame[led * 12 + idx]     = r
-            frame[led * 12 + 4 + idx] = g
+            frame[led * 12 + idx]     = g
+            frame[led * 12 + 4 + idx] = r
             frame[led * 12 + 8 + idx] = b
     return bytes(frame)
 
@@ -428,7 +428,8 @@ class NetworkService:
                 for led in range(LEDS_PER_CHANNEL):
                     pos = base + 1 + led
                     if pos < len(data):
-                        states[(ch, led)] = (data[pos] == 0xCC)
+                        # Hardware offset fix: physical B -> visual B+1
+                        states[(ch, led + 1)] = (data[pos] == 0xCC)
 
             with self.game.lock:
                 self.game.button_states = states
@@ -596,26 +597,12 @@ class EclipseGame:
                     print("[ECLIPSE] HIDE! 5 seconds!")
 
             elif self.round_state == "HIDE_PHASE":
-                # Check if Eye detects anyone (warning only)
-                if self._btn(self.current_eye_wall, 0):
-                    audio.play_sfx("drop")  # Warning beep
+                # No IR sensor anymore: pure dramatic pause!
                 if elapsed >= HIDE_TIME:
-                    self.round_state = "WAITING_BAIT"
-                    self.phase_start = now
-                    print("[ECLIPSE] Eye is watching... send the bait!")
-
-            elif self.round_state == "WAITING_BAIT":
-                # Wait for Eye IR to detect someone
-                if self._btn(self.current_eye_wall, 0):
                     self.round_state = "BAIT_RUN"
                     self.phase_start = now
                     audio.play_sfx("quake")  # Alarm!
-                    print("[ECLIPSE] BAIT DETECTED! Run to distraction!")
-                elif elapsed >= BAIT_WAIT_TIMEOUT:
-                    # Timeout — remind players
-                    self.round_state = "WAITING_BAIT"
-                    self.phase_start = now
-                    print("[ECLIPSE] Still waiting for bait...")
+                    print("[ECLIPSE] BAIT_RUN! Run to distraction!")
 
             elif self.round_state == "BAIT_RUN":
                 # Check if bait pressed distraction buttons
@@ -774,18 +761,6 @@ class EclipseGame:
                     if ch != ew:
                         for i in range(1, min(lit_count + 1, 11)):
                             leds[(ch, i)] = _scale(YELLOW, 40)
-
-            elif self.round_state == "WAITING_BAIT":
-                # Eye: PURPLE slow pulse
-                b = _pulse(now, speed=1.5, lo=100, hi=255)
-                leds[(ew, 0)] = _scale(PURPLE, b)
-                # Pattern: dim green
-                for btn in self.pattern_btns:
-                    leds[(ew, btn)] = DIM_GREEN
-                # Distraction buttons: YELLOW pulsing
-                bd = _pulse(now, speed=2.0, lo=40, hi=200)
-                for btn in self.distraction_btns:
-                    leds[(dw, btn)] = _scale(YELLOW, bd)
 
             elif self.round_state == "BAIT_RUN":
                 # Eye: RED solid
@@ -976,12 +951,12 @@ if __name__ == "__main__":
             
         if discovered_ip:
             device_ip = discovered_ip
-            UDP_DEVICE_PORT = 4624
+            UDP_DEVICE_PORT = 4626
             UDP_BUTTON_PORT = 7800
-            print(f"> [AUTO] Spirtism atașat la Hardware Real: {device_ip} pe 4624/7800")
+            print(f"> [AUTO] Spirtism atașat la Hardware Real: {device_ip} pe 4626/7800")
         else:
             device_ip = "169.254.182.11"
-            UDP_DEVICE_PORT = 4624
+            UDP_DEVICE_PORT = 4626
             UDP_BUTTON_PORT = 7800
             print(f"[HARDWARE] Folosim IP dictat de mentor: {device_ip} pe {UDP_DEVICE_PORT}/{UDP_BUTTON_PORT}")
 
@@ -1019,19 +994,18 @@ if __name__ == "__main__":
     def _auto_test_round():
         """Automatically play through one complete round with sim commands."""
         print("\n[TEST] ═══ Auto-playing one round... ═══")
-        # Wait for WAITING_BAIT
+        # Wait for BAIT_RUN
         for _ in range(200):
             t = game.get_telemetry()
-            if t["round_state"] == "WAITING_BAIT":
+            if t["round_state"] == "BAIT_RUN":
                 break
             time.sleep(0.1)
         else:
-            print("[TEST] Timed out waiting for WAITING_BAIT")
+            print("[TEST] Timed out waiting for BAIT_RUN")
             return
 
-        print("[TEST] Step 1: Triggering Eye IR (bait steps out)...")
+        print("[TEST] Step 1: Proceeding to distraction...")
         ew = t["current_eye"]
-        game.sim_press(ew, 0, hold_seconds=0.5)
         time.sleep(1.0)
 
         t = game.get_telemetry()
