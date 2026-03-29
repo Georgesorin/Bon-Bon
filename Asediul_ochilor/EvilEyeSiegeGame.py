@@ -15,7 +15,7 @@ def _load_config():
         "device_ip": "169.254.182.11",     # Adresa unde trimitem date (Spre Simulator sau Hardware EvilEye)
         "send_port": 4626,            # Portul către care TRIMITEM frame-uri cu culori
         "recv_port": 7800,            # Portul pe care ASCULTĂM apăsările de butoane
-        "bind_ip": "0.0.0.0",         # IP-ul pe care facem host la pachetele de intrare
+        "bind_ip": "255.255.255.255",         # IP-ul pe care facem host la pachetele de intrare
         
         # --- Parametri Joc ---
         'num_players': 4,           # Dacă e <= 2, Faza 3 e o repetare pentru Faza 2
@@ -135,7 +135,7 @@ class EvilEyeSiegeGame:
         offset = self.config.get('button_offset', 0)
         if offset != 0 and led > 0:
             g_idx = (ch - 1) * 10 + (led - 1)
-            g_idx = (g_idx + offset) % 40
+            g_idx = (g_idx - offset) % 40
             ch = (g_idx // 10) + 1
             led = (g_idx % 10) + 1
             

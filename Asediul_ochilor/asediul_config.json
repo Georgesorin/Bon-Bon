@@ -2,7 +2,7 @@
     "device_ip": "169.254.182.11",
     "send_port": 4626,
     "recv_port": 7800,
-    "bind_ip": "0.0.0.0",
+    "bind_ip": "255.255.255.255",
     "num_players": 4,
     "phase1_duration": 30.0,
     "time_per_blue_ph1": 3.0,
